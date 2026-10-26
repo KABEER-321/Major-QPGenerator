@@ -261,7 +261,7 @@ def index_curriculum_textbook(grade_num: int, force: bool = False) -> DocumentRe
     if not force and index_file.exists():
         try:
             rec = load_document_record(doc_id)
-            if rec.content_hash == current_hash and rec.num_chunks > 0:
+            if (getattr(rec, "content_hash", None) == current_hash or rec.has_index) and rec.num_chunks > 0:
                 logger.info("Class %d textbook already indexed with %d chunks. Reusing.", grade_num, rec.num_chunks)
                 return rec
         except Exception as e:

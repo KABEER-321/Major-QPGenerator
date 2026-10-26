@@ -837,7 +837,18 @@ def download_paper_pdf(paper_id: str, include_answers: bool = True):
 
     pdf_bytes = generate_pdf(paper, include_answers=include_answers)
 
-    filename = f"{paper.title.replace(' ', '_')}_{paper.paper_id}.pdf"
+    safe_title = (
+        paper.title.replace("—", "-")
+        .replace("–", "-")
+        .replace(" ", "_")
+        .encode("ascii", "ignore")
+        .decode()
+        .strip("_")
+    )
+    if not safe_title:
+        safe_title = f"paper_{paper.paper_id}"
+    version = "solutions" if include_answers else "student"
+    filename = f"{safe_title}_{version}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

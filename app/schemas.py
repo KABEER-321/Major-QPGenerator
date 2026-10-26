@@ -854,6 +854,10 @@ class DocumentRecord(BaseModel):
         default=False,
         description="Whether a FAISS index has been built for this document",
     )
+    content_hash: Optional[str] = Field(
+        default=None,
+        description="SHA-256 hash of the source file to detect modifications",
+    )
     text_preview: str = Field(
         default="",
         description="First ~300 characters of extracted text for quick reference",

@@ -301,3 +301,44 @@ def test_pdf_export_copies():
     assert len(student_pdf) > 1000
     # Student copy is typically slightly smaller because answers/solutions are omitted
     assert len(student_pdf) <= len(teacher_pdf)
+
+
+def test_download_paper_pdf_endpoint_with_unicode_title(client, monkeypatch, tmp_path):
+    from app.config import settings
+    from app.paper import save_paper
+
+    monkeypatch.setattr(settings, "DATA_DIR", tmp_path)
+    paper = Paper(
+        paper_id="paper_unicode_title",
+        document_id="curriculum_class_4",
+        title="Class 4 Mathematics — Prerequisite Examination",
+        grade="Class 4",
+        academic_grade="Class 4",
+        curriculum_grade="Class 3",
+        exam_type=ExamType.PREREQUISITE,
+        syllabus_scope="Class 3 syllabus",
+        topic="Mathematics",
+        total_marks=10,
+        num_questions=2,
+        difficulty=Difficulty.EASY,
+        subject="Mathematics",
+        questions=[_sample_question("q1", marks=5), _sample_question("q2", marks=5)],
+    )
+    save_paper(paper)
+
+    # Test teacher download (include_answers=True)
+    res_teacher = client.get(f"/papers/{paper.paper_id}/pdf?include_answers=true")
+    assert res_teacher.status_code == 200
+    assert res_teacher.headers["content-type"] == "application/pdf"
+    assert "attachment; filename=" in res_teacher.headers["content-disposition"]
+    assert "solutions.pdf" in res_teacher.headers["content-disposition"]
+    assert len(res_teacher.content) > 1000
+
+    # Test student download (include_answers=False)
+    res_student = client.get(f"/papers/{paper.paper_id}/pdf?include_answers=false")
+    assert res_student.status_code == 200
+    assert res_student.headers["content-type"] == "application/pdf"
+    assert "attachment; filename=" in res_student.headers["content-disposition"]
+    assert "student.pdf" in res_student.headers["content-disposition"]
+    assert len(res_student.content) > 1000
+
