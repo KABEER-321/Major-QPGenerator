@@ -8,9 +8,10 @@
 
 import logging
 import uuid
+from typing import Optional
 from pathlib import Path
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import Response, HTMLResponse
 
 from app.config import settings
@@ -26,6 +27,12 @@ from app.schemas import (
     BatchPaperResponse,
     BatchValidationSummary,
     MathCheckStatus,
+    ExamType,
+    parse_grade_number,
+    get_previous_class,
+    format_grade_display,
+    extract_syllabus_units,
+    determine_midterm_scope,
 )
 from app.documents import (
     validate_file_extension,
@@ -49,6 +56,8 @@ from app.documents_store import (
     load_document_record,
     list_document_records,
     delete_document_and_assets,
+    find_best_document_for_grade,
+    find_documents_by_class_and_subject,
 )
 
 # Set up logging
@@ -108,7 +117,11 @@ def health_check():
 # ---------------------------------------------------------------------------
 
 @app.post("/documents/upload", response_model=DocumentInfo, tags=["Documents"])
-async def upload_document(file: UploadFile = File(...)):
+async def upload_document(
+    file: UploadFile = File(...),
+    grade: Optional[str] = Form(None),
+    subject: Optional[str] = Form("Mathematics"),
+):
     """
     Upload a PDF or DOCX file.
     Extracts text, splits it into chunks, creates embeddings,
@@ -145,11 +158,25 @@ async def upload_document(file: UploadFile = File(...)):
         file_path.unlink(missing_ok=True)
         raise HTTPException(status_code=422, detail=str(e))
 
-    # 5. Split into chunks
-    chunks = split_text_into_chunks(text, source_filename=file.filename or safe_filename)
+    # 5. Extract metadata & units
+    parsed_grade = grade
+    if not parsed_grade:
+        num = parse_grade_number(file.filename or "")
+        if num is not None:
+            parsed_grade = str(num)
+
+    units = extract_syllabus_units(text)
+
+    # 6. Split into chunks
+    chunks = split_text_into_chunks(
+        text,
+        source_filename=file.filename or safe_filename,
+        grade=parsed_grade,
+        subject=subject or "Mathematics",
+    )
     logger.info("Split document into %d chunks", len(chunks))
 
-    # 6. Build FAISS index (this calls the embedding model)
+    # 7. Build FAISS index (this calls the embedding model)
     index_built = False
     try:
         build_faiss_index(chunks, document_id)
@@ -161,10 +188,10 @@ async def upload_document(file: UploadFile = File(...)):
             detail=f"Failed to create embeddings. Check your GOOGLE_API_KEY. Error: {e}",
         )
 
-    # 7. Count pages for metadata
+    # 8. Count pages for metadata
     num_pages = count_pages(file_path, extension)
 
-    # 8. Save document record for tracking and traceability
+    # 9. Save document record for tracking and traceability
     text_preview = text[:300].strip()
     if len(text) > 300:
         text_preview += "…"
@@ -173,6 +200,9 @@ async def upload_document(file: UploadFile = File(...)):
         document_id=document_id,
         original_filename=file.filename or safe_filename,
         safe_filename=safe_filename,
+        grade=parsed_grade,
+        subject=subject or "Mathematics",
+        units=units if units else None,
         num_chunks=len(chunks),
         num_pages=num_pages,
         file_size_bytes=len(contents),
@@ -213,12 +243,26 @@ def upload_text_document(request: TextDocumentRequest):
     file_path.write_text(clean_text, encoding="utf-8")
     logger.info("Saved text document as %s", file_path)
 
-    # 3. Split into chunks
+    # 3. Extract metadata & units
+    parsed_grade = request.grade
+    if not parsed_grade:
+        num = parse_grade_number(request.title)
+        if num is not None:
+            parsed_grade = str(num)
+
+    units = extract_syllabus_units(clean_text)
+
+    # 4. Split into chunks
     display_name = f"{request.title.strip()}.txt"
-    chunks = split_text_into_chunks(clean_text, source_filename=display_name)
+    chunks = split_text_into_chunks(
+        clean_text,
+        source_filename=display_name,
+        grade=parsed_grade,
+        subject=request.subject or "Mathematics",
+    )
     logger.info("Split text document into %d chunks", len(chunks))
 
-    # 4. Build FAISS index
+    # 5. Build FAISS index
     index_built = False
     try:
         build_faiss_index(chunks, document_id)
@@ -231,10 +275,10 @@ def upload_text_document(request: TextDocumentRequest):
             detail=f"Failed to create embeddings. Check your GOOGLE_API_KEY. Error: {e}",
         )
 
-    # 5. Estimate pages (~3000 chars per typical page)
+    # 6. Estimate pages (~3000 chars per typical page)
     num_pages = max(1, len(clean_text) // 3000 + (1 if len(clean_text) % 3000 else 0))
 
-    # 6. Save document record
+    # 7. Save document record
     text_preview = clean_text[:300].strip()
     if len(clean_text) > 300:
         text_preview += "…"
@@ -243,6 +287,9 @@ def upload_text_document(request: TextDocumentRequest):
         document_id=document_id,
         original_filename=display_name,
         safe_filename=safe_filename,
+        grade=parsed_grade,
+        subject=request.subject or "Mathematics",
+        units=units if units else None,
         num_chunks=len(chunks),
         num_pages=num_pages,
         file_size_bytes=len(clean_text.encode("utf-8")),
@@ -298,6 +345,149 @@ def delete_document(document_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Examination Scope & Curriculum Resolution Helper
+# ---------------------------------------------------------------------------
+
+def resolve_curriculum_and_passages(
+    request: PaperGenerateRequest | BatchPaperGenerateRequest,
+) -> tuple[DocumentRecord, list[object], list[str]]:
+    """
+    Resolve curriculum class, examination scope, target document, and retrieved passages
+    based on the examination type (prerequisite, midterm, or final).
+    Ensures that:
+    1. Prerequisite strictly assesses previous class (Class = academic_class - 1).
+    2. Midterm strictly assesses the first half of the syllabus.
+    3. Final assesses the full syllabus.
+    4. Missing prerequisite syllabus produces a clear error instead of silent fallback.
+    """
+    exam_type = request.exam_type or ExamType.FINAL
+    academic_class = request.academic_grade or request.grade
+
+    # Load the requested document
+    try:
+        selected_doc = load_document_record(request.document_id)
+    except FileNotFoundError:
+        # Fallback for lightweight / mocked document records
+        selected_doc = DocumentRecord(
+            document_id=request.document_id,
+            original_filename=f"{request.document_id}.pdf",
+            safe_filename=f"{request.document_id}.pdf",
+            grade=request.grade,
+            subject=request.subject,
+            num_chunks=1,
+            has_index=True,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    doc_grade_num = (
+        parse_grade_number(selected_doc.grade)
+        if selected_doc.grade
+        else parse_grade_number(selected_doc.original_filename)
+    )
+
+    forbidden_units: list[str] = []
+
+    if exam_type == ExamType.PREREQUISITE:
+        # Rule: Prerequisite curriculum class = Selected academic class - 1
+        try:
+            prev_class = get_previous_class(academic_class)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
+        target_grade_num = parse_grade_number(prev_class)
+
+        # Check if the currently selected document belongs to the previous class
+        if doc_grade_num == target_grade_num:
+            target_doc = selected_doc
+        else:
+            # Search for a syllabus document matching the previous class
+            alt_doc = find_best_document_for_grade(grade=prev_class, subject=request.subject)
+            if alt_doc is not None:
+                target_doc = alt_doc
+                request.document_id = alt_doc.document_id
+                logger.info(
+                    "Prerequisite routing: automatically using Class %s syllabus document '%s'",
+                    prev_class,
+                    alt_doc.original_filename,
+                )
+            else:
+                # Do NOT silently substitute current class
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"Prerequisite Examination requires syllabus for Class {prev_class} {request.subject} "
+                        f"(for students enrolled in {format_grade_display(academic_class)}). "
+                        f"The selected document '{selected_doc.original_filename}' is for Class {doc_grade_num or 'Unknown'}, "
+                        f"and no syllabus document was found for Class {prev_class}. "
+                        f"Please upload or select the Class {prev_class} syllabus document."
+                    ),
+                )
+
+        request.curriculum_grade = format_grade_display(prev_class)
+        request.academic_grade = format_grade_display(academic_class)
+        request.syllabus_scope = (
+            request.syllabus_scope
+            or f"{format_grade_display(prev_class)} Foundation Prerequisites for {format_grade_display(academic_class)}"
+        )
+
+        try:
+            passages = retrieve_relevant_chunks(target_doc.document_id, request.topic)
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
+    elif exam_type == ExamType.MIDTERM:
+        # Midterm uses selected academic class, restricted to first half of syllabus
+        curr_grade = format_grade_display(academic_class)
+        request.curriculum_grade = curr_grade
+        request.academic_grade = curr_grade
+        target_doc = selected_doc
+
+        first_half_units: list[str] = []
+        if request.syllabus_scope:
+            scope_str = request.syllabus_scope
+        elif target_doc.units and len(target_doc.units) > 1:
+            first_half_units = determine_midterm_scope(target_doc.units)
+            forbidden_units = target_doc.units[len(first_half_units):]
+            scope_str = f"First half of syllabus: {', '.join(first_half_units)}"
+        else:
+            scope_str = "First half of syllabus (Unit 1 to midpoint)"
+
+        request.syllabus_scope = scope_str
+
+        try:
+            passages = retrieve_relevant_chunks(
+                target_doc.document_id,
+                request.topic,
+                first_half_only=True,
+                permitted_units=first_half_units if first_half_units else None,
+            )
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
+    else:
+        # Final Examination uses full syllabus of selected class
+        curr_grade = format_grade_display(academic_class)
+        request.curriculum_grade = curr_grade
+        request.academic_grade = curr_grade
+        request.syllabus_scope = request.syllabus_scope or "Full Syllabus"
+        target_doc = selected_doc
+
+        try:
+            passages = retrieve_relevant_chunks(target_doc.document_id, request.topic)
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
+    return target_doc, passages, forbidden_units
+
+
+# ---------------------------------------------------------------------------
 # POST /papers/generate — generate a question paper
 # ---------------------------------------------------------------------------
 
@@ -305,18 +495,12 @@ def delete_document(document_id: str):
 def generate_paper(request: PaperGenerateRequest):
     """
     Generate a question paper from an uploaded document.
-    Retrieves relevant passages, calls Gemini to generate questions,
+    Retrieves relevant passages based on the examination type, calls Gemini,
     validates the output, assembles the paper, and saves it as JSON.
     """
-    # 1. Retrieve relevant passages
-    try:
-        passages = retrieve_relevant_chunks(request.document_id, request.topic)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+    target_doc, passages, forbidden_units = resolve_curriculum_and_passages(request)
 
-    # 2. Generate questions with Gemini
+    # Generate questions with Gemini
     try:
         questions = generate_questions(request, passages)
     except RuntimeError as e:
@@ -328,7 +512,14 @@ def generate_paper(request: PaperGenerateRequest):
             detail=f"Question generation failed unexpectedly: {e}",
         )
 
-    # 3. Assemble and save the paper
+    # Syllabus scope validation: check no forbidden units included in mid-semester
+    if forbidden_units:
+        for q in questions:
+            for fu in forbidden_units:
+                if fu.lower() in q.question_text.lower() or fu.lower() in q.topic.lower():
+                    logger.warning("Question '%s' touched forbidden mid-semester unit '%s'", q.question_id, fu)
+
+    # Assemble and save the paper
     try:
         blueprint = request.get_or_create_blueprint()
         paper = assemble_paper(
@@ -351,22 +542,15 @@ def generate_paper(request: PaperGenerateRequest):
 def generate_batch_papers(request: BatchPaperGenerateRequest):
     """
     Generate multiple unique paper versions in a single request sharing the same blueprint.
-    Retrieves syllabus passages, builds a candidate question pool, validates mathematical
-    correctness with SymPy, detects duplicates, selects disjoint sets of questions for each
-    version without replacement, and saves each paper to JSON.
+    Retrieves syllabus passages according to examination type, builds candidate pool,
+    validates correctness, and selects disjoint sets of questions.
     """
     blueprint = request.get_or_create_blueprint()
     batch_id = uuid.uuid4().hex[:10]
 
-    # 1. Retrieve relevant passages
-    try:
-        passages = retrieve_relevant_chunks(request.document_id, request.topic)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+    target_doc, passages, forbidden_units = resolve_curriculum_and_passages(request)
 
-    # 2. Generate candidate question pool
+    # Generate candidate question pool
     try:
         candidates, dups_rejected, math_discrepancies = generate_candidate_pool(
             blueprint=blueprint,
@@ -375,6 +559,10 @@ def generate_batch_papers(request: BatchPaperGenerateRequest):
             subject=request.subject,
             topic=request.topic,
             num_versions=request.num_versions,
+            exam_type=request.exam_type,
+            academic_grade=request.academic_grade,
+            curriculum_grade=request.curriculum_grade,
+            syllabus_scope=request.syllabus_scope,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
@@ -382,7 +570,7 @@ def generate_batch_papers(request: BatchPaperGenerateRequest):
         logger.error("Candidate generation failed: %s", e)
         raise HTTPException(status_code=500, detail=f"Candidate generation failed: {e}")
 
-    # 3. Select questions without replacement across versions
+    # Select questions without replacement across versions
     try:
         versions_questions, versions_sections = select_version_questions(
             candidate_pool=candidates,
@@ -401,7 +589,7 @@ def generate_batch_papers(request: BatchPaperGenerateRequest):
             },
         )
 
-    # 4. Assemble and persist each version
+    # Assemble and persist each version
     saved_papers: list[Paper] = []
     paper_ids: list[str] = []
 
@@ -415,6 +603,10 @@ def generate_batch_papers(request: BatchPaperGenerateRequest):
             grade=request.grade,
             subject=request.subject,
             topic=request.topic,
+            exam_type=request.exam_type,
+            academic_grade=request.academic_grade,
+            curriculum_grade=request.curriculum_grade,
+            syllabus_scope=request.syllabus_scope,
             difficulty=request.difficulty,
             num_questions=blueprint.total_questions,
             total_marks=blueprint.total_marks,

@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 
 from app.config import settings
-from app.schemas import DocumentRecord, DocumentSummary
+from app.schemas import DocumentRecord, DocumentSummary, parse_grade_number
 
 logger = logging.getLogger(__name__)
 
@@ -84,11 +84,66 @@ def list_document_records() -> list[DocumentSummary]:
                     file_size_bytes=data.get("file_size_bytes", 0),
                     uploaded_at=data.get("uploaded_at", ""),
                     has_index=data.get("has_index", False),
+                    grade=data.get("grade"),
+                    subject=data.get("subject", "Mathematics"),
+                    units=data.get("units"),
                 )
             )
         except Exception as e:
             logger.warning("Skipping malformed document record %s: %s", file_path.name, e)
     return summaries
+
+
+def find_documents_by_class_and_subject(
+    grade: str,
+    subject: str = "Mathematics",
+) -> list[DocumentRecord]:
+    """
+    Find document records matching the requested grade/class and subject.
+    Matches explicitly stored metadata or falls back to standard naming patterns.
+    """
+    target_grade_num = parse_grade_number(grade)
+    matching_records: list[DocumentRecord] = []
+
+    for file_path in sorted(settings.uploads_dir.glob("*.json")):
+        try:
+            raw = file_path.read_text(encoding="utf-8")
+            data = json.loads(raw)
+            record = DocumentRecord.model_validate(data)
+
+            # Check grade match
+            doc_grade_num = parse_grade_number(record.grade) if record.grade else parse_grade_number(record.original_filename)
+
+            if target_grade_num is not None:
+                if doc_grade_num != target_grade_num:
+                    continue
+            elif record.grade and grade.strip().lower() not in record.grade.lower():
+                continue
+
+            # Check subject match if specified
+            if subject:
+                doc_subj = (record.subject or "").lower()
+                req_subj = subject.lower()
+                if doc_subj and req_subj not in doc_subj and doc_subj not in req_subj:
+                    if req_subj not in record.original_filename.lower():
+                        continue
+
+            matching_records.append(record)
+        except Exception as e:
+            logger.debug("Skipping unreadable doc record in search %s: %s", file_path.name, e)
+
+    return matching_records
+
+
+def find_best_document_for_grade(
+    grade: str,
+    subject: str = "Mathematics",
+) -> DocumentRecord | None:
+    """Return the most relevant document for a given grade and subject."""
+    matches = find_documents_by_class_and_subject(grade=grade, subject=subject)
+    if matches:
+        return matches[0]
+    return None
 
 
 def delete_document_record(document_id: str) -> bool:

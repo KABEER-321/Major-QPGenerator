@@ -2,6 +2,7 @@
 # Handles PDF and DOCX text extraction and splitting into chunks.
 # Uses PyMuPDF for PDFs and python-docx for DOCX files.
 
+import math
 from pathlib import Path
 
 import pymupdf  # PyMuPDF (formerly imported as 'fitz')
@@ -92,6 +93,8 @@ def count_pages(file_path: Path, extension: str) -> int | None:
 def split_text_into_chunks(
     text: str,
     source_filename: str,
+    grade: str | None = None,
+    subject: str | None = None,
 ) -> list[dict]:
     """
     Split text into overlapping chunks for retrieval.
@@ -109,12 +112,23 @@ def split_text_into_chunks(
     raw_chunks = splitter.split_text(text)
 
     chunks = []
+    total = len(raw_chunks)
+    half = math.ceil(total / 2.0) if total > 0 else 0
+
     for i, chunk_text in enumerate(raw_chunks):
+        meta = {
+            "source": source_filename,
+            "chunk_index": i,
+            "total_chunks": total,
+            "is_first_half": (i < half),
+        }
+        if grade:
+            meta["grade"] = grade
+        if subject:
+            meta["subject"] = subject
+
         chunks.append({
             "content": chunk_text,
-            "metadata": {
-                "source": source_filename,
-                "chunk_index": i,
-            },
+            "metadata": meta,
         })
     return chunks

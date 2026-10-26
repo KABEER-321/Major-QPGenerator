@@ -19,7 +19,7 @@ from reportlab.platypus import (
 )
 from reportlab.lib import colors
 
-from app.schemas import Paper, QuestionType
+from app.schemas import Paper, QuestionType, ExamType, format_grade_display
 
 
 def _get_styles():
@@ -104,19 +104,40 @@ def generate_pdf(paper: Paper, include_answers: bool = True) -> bytes:
     story = []
 
     # --- Header ---
+    exam_type = getattr(paper, "exam_type", ExamType.FINAL) or ExamType.FINAL
+    academic_class = getattr(paper, "academic_grade", None) or paper.grade
+    curriculum_class = getattr(paper, "curriculum_grade", None) or paper.grade
+    scope = getattr(paper, "syllabus_scope", None)
+
     story.append(Paragraph(paper.title, styles["PaperTitle"]))
     if paper.num_versions > 1:
         story.append(Paragraph(
             f"Paper Version: {paper.version_number} of {paper.num_versions} | Batch: {paper.batch_id or 'N/A'}",
             styles["PaperMeta"],
         ))
+
+    if exam_type == ExamType.PREREQUISITE:
+        story.append(Paragraph(
+            f"<b>Academic Class:</b> {format_grade_display(academic_class)} &nbsp;|&nbsp; "
+            f"<b>Curriculum Used:</b> {format_grade_display(curriculum_class)} {paper.subject}",
+            styles["PaperMeta"],
+        ))
+    elif exam_type == ExamType.MIDTERM:
+        story.append(Paragraph(
+            f"<b>Academic Class:</b> {format_grade_display(academic_class)} &nbsp;|&nbsp; <b>Subject:</b> {paper.subject} &nbsp;|&nbsp; "
+            f"<b>Syllabus Scope:</b> {scope or 'First Half of Syllabus'}",
+            styles["PaperMeta"],
+        ))
+    else:
+        story.append(Paragraph(
+            f"<b>Academic Class:</b> {format_grade_display(academic_class)} &nbsp;|&nbsp; <b>Subject:</b> {paper.subject} &nbsp;|&nbsp; "
+            f"<b>Syllabus Scope:</b> {scope or 'Full Syllabus'}",
+            styles["PaperMeta"],
+        ))
+
     story.append(Paragraph(
-        f"Grade: {paper.grade} | Subject: {paper.subject} | "
-        f"Topic: {paper.topic} | Difficulty: {paper.difficulty.value.title()}",
-        styles["PaperMeta"],
-    ))
-    story.append(Paragraph(
-        f"Total Questions: {paper.num_questions} | Total Marks: {paper.total_marks}",
+        f"Topic: {paper.topic} &nbsp;|&nbsp; Difficulty: {paper.difficulty.value.title()} &nbsp;|&nbsp; "
+        f"Total Questions: {paper.num_questions} &nbsp;|&nbsp; Total Marks: {paper.total_marks}",
         styles["PaperMeta"],
     ))
     story.append(Spacer(1, 12))

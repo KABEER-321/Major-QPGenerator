@@ -16,11 +16,13 @@ from app.schemas import (
     Question,
     QuestionType,
     Difficulty,
+    ExamType,
     PaperGenerateRequest,
     SourceReference,
     ValidationStatus,
     ExamBlueprint,
     MathCheckStatus,
+    format_grade_display,
 )
 from app.math_verify import verify_question_math
 from app.duplicates import is_duplicate, deduplicate_candidates
@@ -65,7 +67,7 @@ def _build_human_prompt(
     request: PaperGenerateRequest,
     passages: list[Document],
 ) -> str:
-    """Build the human message with requirements and retrieved passages."""
+    """Build the human message with requirements, examination type instructions, and retrieved passages."""
     passage_text = "\n---\n".join(
         f"[Passage {i+1} from {doc.metadata.get('source', 'unknown')}]\n{doc.page_content}"
         for i, doc in enumerate(passages)
@@ -85,10 +87,38 @@ def _build_human_prompt(
 
     types_str = ", ".join(qt.value for qt in request.question_types)
 
+    exam_type = request.exam_type or ExamType.FINAL
+    academic_class = format_grade_display(request.academic_grade or request.grade)
+    curriculum_class = format_grade_display(request.curriculum_grade or request.grade)
+    scope_str = request.syllabus_scope or request.topic
+
+    if exam_type == ExamType.PREREQUISITE:
+        exam_instructions = f"""EXAMINATION TYPE: Prerequisite Examination
+- Academic Class of Students: {academic_class}
+- Curriculum Class Used: {curriculum_class}
+- Subject: {request.subject}
+- Permitted Syllabus Topics: {scope_str}
+- Focus: Assess foundational mathematical concepts and prerequisites from {curriculum_class} that prepare students for {academic_class}.
+- Genuinely test prerequisite knowledge from the {curriculum_class} syllabus."""
+    elif exam_type == ExamType.MIDTERM:
+        exam_instructions = f"""EXAMINATION TYPE: Mid-Semester Examination
+- Academic Class: {academic_class}
+- Curriculum Class: {curriculum_class}
+- Subject: {request.subject}
+- Permitted Syllabus Scope (First Half Only): {scope_str}
+- Focus: Assess ONLY topics from the permitted first half of the syllabus.
+- STRICT PROHIBITION: Do NOT generate questions from topics outside this permitted mid-semester scope."""
+    else:
+        exam_instructions = f"""EXAMINATION TYPE: Final Examination
+- Academic Class: {academic_class}
+- Curriculum Class: {curriculum_class}
+- Subject: {request.subject}
+- Permitted Syllabus Scope: {scope_str} (Full Syllabus)
+- Focus: Comprehensive assessment covering the applicable Class {curriculum_class} syllabus."""
+
     return f"""Generate a mathematics question paper with these requirements:
 
-- Grade/Class: {request.grade}
-- Subject: {request.subject}
+{exam_instructions}
 - Topic/Chapter: {request.topic}
 - Difficulty: {request.difficulty.value}
 - Question types to include: {types_str}
@@ -100,6 +130,7 @@ REFERENCE PASSAGES (use these as your source material):
 {passage_text}
 
 Generate exactly {request.num_questions} questions totaling exactly {request.total_marks} marks.
+Ensure every question provides the question text, correct answer, and worked solution/marking steps.
 Return ONLY a JSON array of question objects."""
 
 
@@ -134,7 +165,7 @@ def _enrich_question(
     the retrieved passages, and marks the question as validated.
     """
     question.question_id = uuid.uuid4().hex[:10]
-    question.grade = request.grade
+    question.grade = request.academic_grade or request.grade
     question.subject = request.subject
     question.chapter = request.topic  # chapter defaults to the requested topic
     question.source_references = source_refs
@@ -273,6 +304,10 @@ def generate_candidate_pool(
     subject: str,
     topic: str,
     num_versions: int = 1,
+    exam_type: ExamType = ExamType.FINAL,
+    academic_grade: str | None = None,
+    curriculum_grade: str | None = None,
+    syllabus_scope: str | None = None,
 ) -> tuple[list[Question], int, int]:
     """
     Generate a pool of candidate questions for all blueprint sections.
@@ -289,6 +324,10 @@ def generate_candidate_pool(
         for i, doc in enumerate(passages)
     )
 
+    academic_class = academic_grade or grade
+    curriculum_class = curriculum_grade or grade
+    scope_str = syllabus_scope or topic
+
     all_candidates: list[Question] = []
     total_duplicates_rejected = 0
     total_math_discrepancies_rejected = 0
@@ -302,9 +341,25 @@ def generate_candidate_pool(
 
         sec_candidates: list[Question] = []
 
+        if exam_type == ExamType.PREREQUISITE:
+            exam_header = f"""EXAMINATION TYPE: Prerequisite Examination
+- Academic Class of Students: {academic_class}
+- Curriculum Class Used: Class {curriculum_class}
+- Focus: Foundational questions from Class {curriculum_class} assessing prerequisite readiness for {academic_class}."""
+        elif exam_type == ExamType.MIDTERM:
+            exam_header = f"""EXAMINATION TYPE: Mid-Semester Examination
+- Academic Class: {academic_class}
+- Permitted Scope: {scope_str} (First Half of Syllabus Only)
+- STRICT PROHIBITION: Do NOT generate questions outside this mid-semester scope."""
+        else:
+            exam_header = f"""EXAMINATION TYPE: Final Examination
+- Academic Class: {academic_class}
+- Scope: {scope_str} (Full Syllabus)"""
+
         human_prompt = f"""Generate candidate questions for Section '{sec.section_id}' ({sec.title}) with these specifications:
 
-- Grade/Class: {grade}
+{exam_header}
+- Grade/Class: {academic_class}
 - Subject: {subject}
 - Topic/Chapter: {topic}
 - Question Type: {sec.question_type.value} (ALL questions MUST be of this type)

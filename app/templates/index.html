@@ -813,6 +813,16 @@
               <p style="font-weight: 600; font-size: 14px; margin-bottom: 4px;">Choose a file or drag & drop</p>
               <p style="font-size: 12px; color: var(--text-dim);">Supported formats: PDF or DOCX (Max 25 MB)</p>
             </div>
+            <div class="form-row" style="margin-top: 10px;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="file-grade-input">Class / Grade (Optional)</label>
+                <input type="text" id="file-grade-input" placeholder="e.g. 10, 9" style="font-size: 13px; padding: 7px 10px;">
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="file-subject-input">Subject</label>
+                <input type="text" id="file-subject-input" value="Mathematics" style="font-size: 13px; padding: 7px 10px;">
+              </div>
+            </div>
           </div>
 
           <!-- Plain Text Input Panel -->
@@ -820,6 +830,16 @@
             <div class="form-group">
               <label for="text-title-input">Document / Chapter Title</label>
               <input type="text" id="text-title-input" placeholder="e.g. Grade 10 - Real Numbers Notes">
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="text-grade-input">Class / Grade (Optional)</label>
+                <input type="text" id="text-grade-input" placeholder="e.g. 10, 9" style="font-size: 13px; padding: 7px 10px;">
+              </div>
+              <div class="form-group">
+                <label for="text-subject-input">Subject</label>
+                <input type="text" id="text-subject-input" value="Mathematics" style="font-size: 13px; padding: 7px 10px;">
+              </div>
             </div>
             <div class="form-group">
               <label for="text-content-input">Syllabus Text / Chapter Excerpt</label>
@@ -854,14 +874,27 @@
           </div>
 
           <form id="generate-form">
+            <!-- Select Examination Type -->
+            <div class="form-group">
+              <label for="exam-type-select">Select Examination Type</label>
+              <select id="exam-type-select" required onchange="updateCurriculumDescription()">
+                <option value="prerequisite">Prerequisite Examination</option>
+                <option value="midterm">Mid-Semester Examination</option>
+                <option value="final" selected>Final Examination</option>
+              </select>
+              <div id="exam-curriculum-hint" style="margin-top: 8px; font-size: 12px; line-height: 1.45; border-radius: var(--radius-sm); padding: 8px 12px; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.25); color: #a5b4fc;">
+                Questions will be generated from the full Class 10 Mathematics syllabus, unless a specific final-examination scope is configured.
+              </div>
+            </div>
+
             <div class="form-row">
               <div class="form-group">
                 <label for="grade-input">Grade / Class</label>
-                <input type="text" id="grade-input" value="10" placeholder="e.g. 10, Class 9" required>
+                <input type="text" id="grade-input" value="10" placeholder="e.g. 10, Class 9" required oninput="updateCurriculumDescription()">
               </div>
               <div class="form-group">
                 <label for="subject-input">Subject</label>
-                <input type="text" id="subject-input" value="Mathematics" required>
+                <input type="text" id="subject-input" value="Mathematics" required oninput="updateCurriculumDescription()">
               </div>
             </div>
 
@@ -934,8 +967,11 @@
               <div class="preview-title">
                 <h2 id="paper-title">Mathematics - Quadratic Equations</h2>
                 <div class="preview-badges">
-                  <span class="badge purple" id="badge-grade">Class 10</span>
-                  <span class="badge amber" id="badge-diff">Medium</span>
+                  <span class="badge purple" id="badge-exam-type">Final Examination</span>
+                  <span class="badge" id="badge-grade">Class 10</span>
+                  <span class="badge green" id="badge-curriculum">Curriculum: Class 10 Mathematics</span>
+                  <span class="badge amber" id="badge-scope">Full Syllabus</span>
+                  <span class="badge" id="badge-diff">MEDIUM</span>
                   <span class="badge" id="badge-counts">3 Questions • 10 Marks</span>
                   <span class="badge green">FAISS Grounded ✓</span>
                 </div>
@@ -975,6 +1011,55 @@
     let currentPaper = null;
     let currentView = 'teacher';
 
+    // HTML escape utility for safe DOM rendering
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    // Dynamic curriculum description based on examination type and academic class
+    function updateCurriculumDescription() {
+      const examSelect = document.getElementById('exam-type-select');
+      const examType = examSelect ? examSelect.value : 'final';
+      const gradeVal = document.getElementById('grade-input').value.trim() || '10';
+      const subjectVal = document.getElementById('subject-input').value.trim() || 'Mathematics';
+      const hintEl = document.getElementById('exam-curriculum-hint');
+
+      const numMatch = gradeVal.match(/\b\d{1,2}\b/);
+      const gradeNum = numMatch ? parseInt(numMatch[0], 10) : null;
+      const gradeDisplay = gradeNum ? `Class ${gradeNum}` : (gradeVal.toLowerCase().startsWith('class') ? gradeVal : `Class ${gradeVal}`);
+
+      if (examType === 'prerequisite') {
+        if (gradeNum !== null && gradeNum > 1) {
+          const prevClass = `Class ${gradeNum - 1}`;
+          hintEl.innerHTML = `<strong>Prerequisite Examination:</strong> Questions will be generated from the <strong>${prevClass} ${escapeHtml(subjectVal)}</strong> syllabus to assess foundational readiness for ${escapeHtml(gradeDisplay)}.`;
+          hintEl.style.color = '#38bdf8';
+          hintEl.style.borderColor = 'rgba(56, 189, 248, 0.3)';
+          hintEl.style.background = 'rgba(56, 189, 248, 0.08)';
+        } else {
+          hintEl.innerHTML = `<strong>Prerequisite Examination:</strong> Questions will be generated from the previous academic class's syllabus to assess readiness for ${escapeHtml(gradeDisplay)}.`;
+          hintEl.style.color = '#38bdf8';
+          hintEl.style.borderColor = 'rgba(56, 189, 248, 0.3)';
+          hintEl.style.background = 'rgba(56, 189, 248, 0.08)';
+        }
+      } else if (examType === 'midterm') {
+        hintEl.innerHTML = `<strong>Mid-Semester Examination:</strong> Questions will be generated from the <strong>first half</strong> of the ${escapeHtml(gradeDisplay)} ${escapeHtml(subjectVal)} syllabus, or from explicitly configured mid-semester units.`;
+        hintEl.style.color = '#fcd34d';
+        hintEl.style.borderColor = 'rgba(252, 211, 77, 0.3)';
+        hintEl.style.background = 'rgba(252, 211, 77, 0.08)';
+      } else {
+        hintEl.innerHTML = `<strong>Final Examination:</strong> Questions will be generated from the <strong>full</strong> ${escapeHtml(gradeDisplay)} ${escapeHtml(subjectVal)} syllabus, unless a specific final-examination scope is configured.`;
+        hintEl.style.color = '#a5b4fc';
+        hintEl.style.borderColor = 'rgba(99, 102, 241, 0.3)';
+        hintEl.style.background = 'rgba(99, 102, 241, 0.08)';
+      }
+    }
+
     // Switch between File Upload and Text Input
     function switchInputMethod(method) {
       document.getElementById('tab-upload-file').classList.toggle('active', method === 'file');
@@ -996,6 +1081,10 @@
     async function submitTextSyllabus() {
       const title = document.getElementById('text-title-input').value.trim();
       const content = document.getElementById('text-content-input').value.trim();
+      const gradeInput = document.getElementById('text-grade-input');
+      const subjectInput = document.getElementById('text-subject-input');
+      const grade = gradeInput ? gradeInput.value.trim() : '';
+      const subject = subjectInput ? subjectInput.value.trim() : 'Mathematics';
 
       if (!title) {
         showToast('Please enter a title for this syllabus text.', true);
@@ -1020,7 +1109,12 @@
         const res = await fetch('/documents/text', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title, content }),
+          body: JSON.stringify({
+            title,
+            content,
+            grade: grade || null,
+            subject: subject || 'Mathematics',
+          }),
         });
 
         if (!res.ok) {
@@ -1029,15 +1123,16 @@
         }
 
         const data = await res.json();
-        statusEl.innerHTML = `<span style="color: #34d399;">✓ "${data.filename}" indexed into ${data.num_chunks} chunk(s).</span>`;
+        statusEl.innerHTML = `<span style="color: #34d399;">✓ "${escapeHtml(data.filename)}" indexed into ${data.num_chunks} chunk(s).</span>`;
         selectedDocumentId = data.document_id;
         showToast('Syllabus text indexed successfully!');
         document.getElementById('text-title-input').value = '';
         document.getElementById('text-content-input').value = '';
+        if (gradeInput) gradeInput.value = '';
         document.getElementById('char-count').textContent = '0 characters';
         loadDocuments();
       } catch (err) {
-        statusEl.innerHTML = `<span style="color: var(--accent-rose);">✗ ${err.message}</span>`;
+        statusEl.innerHTML = `<span style="color: var(--accent-rose);">✗ ${escapeHtml(err.message)}</span>`;
         showToast(err.message, true);
       } finally {
         btn.disabled = false;
@@ -1083,10 +1178,13 @@
           item.className = 'doc-item' + (selectedDocumentId === doc.document_id || (!selectedDocumentId && idx === 0) ? ' selected' : '');
           if (!selectedDocumentId && idx === 0) selectedDocumentId = doc.document_id;
 
+          const gradeBadge = doc.grade ? `<span style="background: rgba(99, 102, 241, 0.2); color: #a5b4fc; font-weight: 600; padding: 1px 6px; border-radius: 4px; font-size: 11px;">Class ${escapeHtml(doc.grade)}</span><span>•</span>` : '';
+
           item.innerHTML = `
             <div class="doc-meta">
-              <div class="doc-name">${doc.original_filename}</div>
+              <div class="doc-name">${escapeHtml(doc.original_filename)}</div>
               <div class="doc-badges">
+                ${gradeBadge}
                 <span>${doc.num_chunks} chunks</span>
                 <span>•</span>
                 <span>${(doc.file_size_bytes / 1024).toFixed(1)} KB</span>
@@ -1141,6 +1239,14 @@
 
       const formData = new FormData();
       formData.append('file', file);
+      const gradeInput = document.getElementById('file-grade-input');
+      const subjectInput = document.getElementById('file-subject-input');
+      if (gradeInput && gradeInput.value.trim()) {
+        formData.append('grade', gradeInput.value.trim());
+      }
+      if (subjectInput && subjectInput.value.trim()) {
+        formData.append('subject', subjectInput.value.trim());
+      }
 
       const statusEl = document.getElementById('upload-status');
       statusEl.style.display = 'block';
@@ -1162,9 +1268,10 @@
         selectedDocumentId = data.document_id;
         showToast('Document indexed successfully!');
         fileInput.value = '';
+        if (gradeInput) gradeInput.value = '';
         loadDocuments();
       } catch (err) {
-        statusEl.innerHTML = `<span style="color: var(--accent-rose);">✗ ${err.message}</span>`;
+        statusEl.innerHTML = `<span style="color: var(--accent-rose);">✗ ${escapeHtml(err.message)}</span>`;
         showToast(err.message, true);
       }
     });
@@ -1184,11 +1291,15 @@
         return;
       }
 
+      const examTypeSelect = document.getElementById('exam-type-select');
+      const examType = examTypeSelect ? examTypeSelect.value : 'final';
+
       const payload = {
         document_id: selectedDocumentId,
         grade: document.getElementById('grade-input').value.trim(),
         subject: document.getElementById('subject-input').value.trim(),
         topic: document.getElementById('topic-input').value.trim(),
+        exam_type: examType,
         difficulty: selectedDifficulty,
         question_types: qtypes,
         num_questions: parseInt(document.getElementById('count-input').value, 10),
@@ -1232,9 +1343,21 @@
       document.getElementById('empty-state').style.display = 'none';
       document.getElementById('paper-view').style.display = 'block';
 
+      const examNames = {
+        'prerequisite': 'Prerequisite Examination',
+        'midterm': 'Mid-Semester Examination',
+        'final': 'Final Examination',
+      };
+      const examTypeDisplay = examNames[paper.exam_type] || 'Final Examination';
+      const academicClass = paper.academic_grade || paper.grade;
+      const curriculumClass = paper.curriculum_grade || paper.grade;
+
       document.getElementById('paper-title').textContent = paper.title;
-      document.getElementById('badge-grade').textContent = `Class ${paper.grade} • ${paper.subject}`;
-      document.getElementById('badge-diff').textContent = paper.difficulty.toUpperCase();
+      document.getElementById('badge-exam-type').textContent = examTypeDisplay;
+      document.getElementById('badge-grade').textContent = `Enrolled: Class ${academicClass}`;
+      document.getElementById('badge-curriculum').textContent = `Curriculum Used: Class ${curriculumClass} ${paper.subject}`;
+      document.getElementById('badge-scope').textContent = `Scope: ${paper.syllabus_scope || (paper.exam_type === 'midterm' ? 'First Half of Syllabus' : 'Full Syllabus')}`;
+      document.getElementById('badge-diff').textContent = (paper.difficulty || 'MEDIUM').toUpperCase();
       document.getElementById('badge-counts').textContent = `${paper.num_questions} Questions • ${paper.total_marks} Marks`;
 
       document.getElementById('download-teacher-btn').href = `/papers/${paper.paper_id}/pdf?include_answers=true`;
@@ -1265,7 +1388,7 @@
               const letter = String.fromCharCode(65 + oIdx);
               const isCorrect = (currentView === 'teacher' && opt === q.correct_option);
               return `<div class="option-item ${isCorrect ? 'correct' : ''}">
-                <strong>${letter}.</strong> <span>${opt}</span> ${isCorrect ? '✓' : ''}
+                <strong>${letter}.</strong> <span>${escapeHtml(opt)}</span> ${isCorrect ? '✓' : ''}
               </div>`;
             }).join('') +
           '</div>';
@@ -1278,9 +1401,9 @@
           if (q.math_verification) {
             const mv = q.math_verification;
             if (mv.status === 'verified') {
-              mathBadge = `<div class="math-check-badge verified">✓ SymPy Math Checked: ${mv.details}</div>`;
+              mathBadge = `<div class="math-check-badge verified">✓ SymPy Math Checked: ${escapeHtml(mv.details)}</div>`;
             } else if (mv.status === 'discrepancy') {
-              mathBadge = `<div class="math-check-badge discrepancy">⚠ Math Discrepancy: ${mv.details}</div>`;
+              mathBadge = `<div class="math-check-badge discrepancy">⚠ Math Discrepancy: ${escapeHtml(mv.details)}</div>`;
             }
           }
 
@@ -1292,9 +1415,9 @@
               <div class="q-grounding">
                 <span class="grounding-tag">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
-                  Grounded in ${ref.source_filename} (Chunk ${ref.chunk_index ?? 0})
+                  Grounded in ${escapeHtml(ref.source_filename)} (Chunk ${ref.chunk_index ?? 0})
                 </span>
-                <span style="font-style: italic;">"${ref.passage_preview}"</span>
+                <span style="font-style: italic;">"${escapeHtml(ref.passage_preview)}"</span>
               </div>
             `;
           }
@@ -1302,8 +1425,8 @@
           teacherContent = `
             <div class="solution-box">
               <div class="solution-title">Expected Answer & Marking Guidance</div>
-              <div style="font-weight: 600; margin-bottom: 4px;">Answer: ${q.answer}</div>
-              <div style="color: var(--text-muted);">${q.solution || ''}</div>
+              <div style="font-weight: 600; margin-bottom: 4px;">Answer: ${escapeHtml(q.answer)}</div>
+              <div style="color: var(--text-muted);">${escapeHtml(q.solution || '')}</div>
             </div>
             ${mathBadge}
             ${citationHtml}
@@ -1314,11 +1437,11 @@
           <div class="question-card-head">
             <div class="q-number">
               <span style="color: var(--accent-primary);">Q${idx + 1}.</span>
-              <span class="badge">${q.question_type.replace('_', ' ').toUpperCase()}</span>
+              <span class="badge">${escapeHtml(q.question_type.replace('_', ' ').toUpperCase())}</span>
             </div>
             <span class="badge green">${q.marks} Marks</span>
           </div>
-          <div class="q-text">${q.question_text}</div>
+          <div class="q-text">${escapeHtml(q.question_text)}</div>
           ${optionsHtml}
           ${teacherContent}
         `;
@@ -1327,7 +1450,8 @@
       });
     }
 
-    // Initial load
+    // Initialize
+    updateCurriculumDescription();
     loadDocuments();
   </script>
 </body>

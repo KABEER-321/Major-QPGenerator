@@ -3,6 +3,8 @@
 # These enforce the expected shape of questions, papers, and API requests.
 
 from __future__ import annotations
+import math
+import re
 import uuid
 from datetime import datetime
 from enum import Enum
@@ -13,6 +15,97 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
+
+class ExamType(str, Enum):
+    """Supported examination types."""
+    PREREQUISITE = "prerequisite"
+    MIDTERM = "midterm"
+    FINAL = "final"
+
+    @property
+    def display_name(self) -> str:
+        names = {
+            ExamType.PREREQUISITE: "Prerequisite Examination",
+            ExamType.MIDTERM: "Mid-Semester Examination",
+            ExamType.FINAL: "Final Examination",
+        }
+        return names.get(self, self.value.replace("_", " ").title())
+
+
+# ---------------------------------------------------------------------------
+# Grade and Syllabus Scope Helpers
+# ---------------------------------------------------------------------------
+
+def parse_grade_number(grade_str: str) -> Optional[int]:
+    """Extract integer class/grade number from strings like '10', 'Class 9', 'Grade 8', '11th'."""
+    if not grade_str:
+        return None
+    match = re.search(r'\b(\d{1,2})(?:st|nd|rd|th)?\b', grade_str.strip(), re.IGNORECASE)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def get_previous_class(grade_str: str) -> str:
+    """
+    Determine the prerequisite curriculum class (academic class - 1).
+    Rule: Prerequisite curriculum class = Selected academic class - 1.
+    Raises ValueError if class cannot be determined or if class <= 1.
+    """
+    grade_num = parse_grade_number(grade_str)
+    if grade_num is None:
+        raise ValueError(
+            f"Cannot determine previous academic class from '{grade_str}'. "
+            "Please provide a standard class format (e.g. '10', 'Class 9', 'Grade 8')."
+        )
+    if grade_num <= 1:
+        raise ValueError(
+            f"Cannot determine prerequisite class for Class {grade_num}. "
+            "Prerequisite assessments require a preceding academic class."
+        )
+    return str(grade_num - 1)
+
+
+def format_grade_display(grade_str: str) -> str:
+    """Format grade string cleanly as 'Class X'."""
+    num = parse_grade_number(grade_str)
+    if num is not None:
+        return f"Class {num}"
+    clean = grade_str.strip()
+    return clean if clean.lower().startswith("class") else f"Class {clean}"
+
+
+def extract_syllabus_units(text: str) -> list[str]:
+    """
+    Identify units, chapters, or major modules from syllabus text.
+    Looks for headers like 'Unit 1: Real Numbers', 'Chapter 2 - Polynomials', etc.
+    """
+    if not text:
+        return []
+    pattern = re.compile(
+        r'(?:^|\n)\s*(?:(?:Unit|Chapter|Module|Topic)\s*[\dIVXLCDM]+[:\.\-–—\s]+[^\n]+)',
+        re.IGNORECASE
+    )
+    matches = [m.strip() for m in pattern.findall(text)]
+    cleaned = []
+    seen = set()
+    for m in matches:
+        line = " ".join(m.split())
+        if line.lower() not in seen and len(line) > 3:
+            seen.add(line.lower())
+            cleaned.append(line)
+    return cleaned
+
+
+def determine_midterm_scope(units: list[str]) -> list[str]:
+    """
+    For mid-semester examinations, select approximately the first half of syllabus units.
+    """
+    if not units:
+        return []
+    half_count = math.ceil(len(units) / 2.0)
+    return units[:half_count]
+
 
 class QuestionType(str, Enum):
     """Supported question types for the first version."""
@@ -411,6 +504,22 @@ class PaperGenerateRequest(BaseModel):
     grade: str = Field(..., min_length=1, description="Grade or class (e.g. '10', 'Class 8')")
     subject: str = Field(default="Mathematics", description="Subject name")
     topic: str = Field(..., min_length=1, description="Chapter or topic to focus on")
+    exam_type: ExamType = Field(
+        default=ExamType.FINAL,
+        description="Examination type: prerequisite, midterm, or final",
+    )
+    academic_grade: Optional[str] = Field(
+        default=None,
+        description="Academic grade/class enrolled by student (defaults to grade)",
+    )
+    curriculum_grade: Optional[str] = Field(
+        default=None,
+        description="Curriculum grade actually assessed",
+    )
+    syllabus_scope: Optional[str] = Field(
+        default=None,
+        description="Permitted syllabus scope/units (e.g. first half, specific units, or full syllabus)",
+    )
     difficulty: Difficulty = Field(default=Difficulty.MEDIUM, description="Overall difficulty")
     question_types: list[QuestionType] = Field(
         default=[QuestionType.SHORT_ANSWER, QuestionType.LONG_ANSWER, QuestionType.MULTIPLE_CHOICE],
@@ -483,6 +592,22 @@ class BatchPaperGenerateRequest(BaseModel):
     grade: str = Field(..., min_length=1, description="Grade or class (e.g. '10', 'Class 8')")
     subject: str = Field(default="Mathematics", description="Subject name")
     topic: str = Field(..., min_length=1, description="Chapter or topic to focus on")
+    exam_type: ExamType = Field(
+        default=ExamType.FINAL,
+        description="Examination type: prerequisite, midterm, or final",
+    )
+    academic_grade: Optional[str] = Field(
+        default=None,
+        description="Academic grade/class enrolled by student (defaults to grade)",
+    )
+    curriculum_grade: Optional[str] = Field(
+        default=None,
+        description="Curriculum grade actually assessed",
+    )
+    syllabus_scope: Optional[str] = Field(
+        default=None,
+        description="Permitted syllabus scope/units",
+    )
     difficulty: Difficulty = Field(default=Difficulty.MEDIUM, description="Overall difficulty")
     num_versions: int = Field(default=2, ge=1, le=10, description="Number of unique paper versions to generate (1-10)")
 
@@ -562,6 +687,22 @@ class Paper(BaseModel):
     grade: str
     subject: str
     topic: str
+    exam_type: ExamType = Field(
+        default=ExamType.FINAL,
+        description="Examination type: prerequisite, midterm, or final",
+    )
+    academic_grade: Optional[str] = Field(
+        default=None,
+        description="Academic class of student",
+    )
+    curriculum_grade: Optional[str] = Field(
+        default=None,
+        description="Curriculum class syllabus used",
+    )
+    syllabus_scope: Optional[str] = Field(
+        default=None,
+        description="Applied syllabus scope or units",
+    )
     difficulty: Difficulty
     created_at: str = Field(
         default_factory=lambda: datetime.now().isoformat(),
@@ -681,6 +822,22 @@ class DocumentRecord(BaseModel):
         default="",
         description="Safe filename used for storage on disk",
     )
+    grade: Optional[str] = Field(
+        default=None,
+        description="Academic grade or class this document belongs to (e.g. '10', '9')",
+    )
+    subject: Optional[str] = Field(
+        default="Mathematics",
+        description="Subject of this syllabus document",
+    )
+    units: Optional[list[str]] = Field(
+        default=None,
+        description="Identified chapters or units in the document",
+    )
+    syllabus_scope: Optional[str] = Field(
+        default=None,
+        description="Identified syllabus scope",
+    )
     num_chunks: int = Field(..., ge=0, description="Number of text chunks created")
     num_pages: Optional[int] = Field(
         default=None,
@@ -711,6 +868,9 @@ class DocumentSummary(BaseModel):
     file_size_bytes: int
     uploaded_at: str
     has_index: bool
+    grade: Optional[str] = None
+    subject: Optional[str] = "Mathematics"
+    units: Optional[list[str]] = None
 
 
 class TextDocumentRequest(BaseModel):
@@ -726,6 +886,14 @@ class TextDocumentRequest(BaseModel):
         min_length=10,
         description="Syllabus, notes, or textbook chapter text content",
     )
+    grade: Optional[str] = Field(
+        default=None,
+        description="Grade or class (e.g. '10', '9', 'Class 8')",
+    )
+    subject: Optional[str] = Field(
+        default="Mathematics",
+        description="Subject name",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -739,6 +907,10 @@ class PaperSummary(BaseModel):
     grade: str
     subject: str
     topic: str
+    exam_type: ExamType = ExamType.FINAL
+    academic_grade: Optional[str] = None
+    curriculum_grade: Optional[str] = None
+    syllabus_scope: Optional[str] = None
     difficulty: Difficulty
     num_questions: int
     total_marks: int

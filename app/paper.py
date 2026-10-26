@@ -11,7 +11,15 @@ from pathlib import Path
 
 from typing import Optional
 from app.config import settings
-from app.schemas import Paper, PaperSummary, Question, PaperGenerateRequest, PaperSection
+from app.schemas import (
+    Paper,
+    PaperSummary,
+    Question,
+    PaperGenerateRequest,
+    PaperSection,
+    ExamType,
+    format_grade_display,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,13 +40,18 @@ def assemble_paper(
     as context (in case these were not already populated by the generator).
     """
     paper_id = uuid.uuid4().hex[:12]
+    academic_class = request.academic_grade or request.grade
+    curriculum_class = request.curriculum_grade or request.grade
+    exam_type = request.exam_type or ExamType.FINAL
+
+    grade_display = format_grade_display(academic_class)
     version_suffix = f" (Version {version_number})" if num_versions > 1 else ""
-    title = f"{request.subject} - {request.topic} ({request.grade}){version_suffix}"
+    title = f"{grade_display} {request.subject} — {exam_type.display_name}{version_suffix}"
 
     # Ensure every question has its context fields filled
     for q in questions:
         if not q.grade:
-            q.grade = request.grade
+            q.grade = academic_class
         if not q.subject or q.subject == "Mathematics":
             q.subject = request.subject
         if not q.chapter:
@@ -47,9 +60,13 @@ def assemble_paper(
     paper = Paper(
         paper_id=paper_id,
         title=title,
-        grade=request.grade,
+        grade=academic_class,
         subject=request.subject,
         topic=request.topic,
+        exam_type=exam_type,
+        academic_grade=academic_class,
+        curriculum_grade=curriculum_class,
+        syllabus_scope=request.syllabus_scope,
         difficulty=request.difficulty,
         questions=questions,
         num_questions=request.num_questions,
@@ -134,6 +151,10 @@ def list_papers() -> list[PaperSummary]:
                     grade=data["grade"],
                     subject=data["subject"],
                     topic=data["topic"],
+                    exam_type=data.get("exam_type", ExamType.FINAL),
+                    academic_grade=data.get("academic_grade"),
+                    curriculum_grade=data.get("curriculum_grade"),
+                    syllabus_scope=data.get("syllabus_scope"),
                     difficulty=data["difficulty"],
                     num_questions=data["num_questions"],
                     total_marks=data["total_marks"],

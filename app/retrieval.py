@@ -80,14 +80,19 @@ def retrieve_relevant_chunks(
     document_id: str,
     query: str,
     top_k: int | None = None,
+    first_half_only: bool = False,
+    permitted_units: list[str] | None = None,
 ) -> list[Document]:
     """
     Retrieve the most relevant text chunks for a given query.
+    Optionally enforces mid-semester scope restrictions (first half of document or permitted units).
 
     Args:
         document_id: ID of the document whose index to search.
         query: The topic or question to search for.
         top_k: Number of results to return (defaults to settings.RETRIEVAL_TOP_K).
+        first_half_only: If True, restricts retrieval to the first half of the syllabus.
+        permitted_units: Optional list of unit names to filter/prioritize.
 
     Returns:
         List of LangChain Document objects ranked by relevance.
@@ -96,11 +101,43 @@ def retrieve_relevant_chunks(
         top_k = settings.RETRIEVAL_TOP_K
 
     vectorstore = load_faiss_index(document_id)
-    results = vectorstore.similarity_search(query, k=top_k)
+    fetch_k = top_k * 4 if (first_half_only or permitted_units) else top_k
+    raw_results = vectorstore.similarity_search(query, k=max(fetch_k, top_k))
 
-    if not results:
+    if not raw_results:
         raise ValueError(
             f"No relevant content found for topic '{query}' in document '{document_id}'. "
             "The paper cannot be grounded in the curriculum without matching passages."
         )
-    return results
+
+    results = raw_results
+    if first_half_only:
+        filtered = []
+        for doc in raw_results:
+            if doc.metadata.get("is_first_half") is True:
+                filtered.append(doc)
+            elif "chunk_index" in doc.metadata and "total_chunks" in doc.metadata:
+                if doc.metadata["chunk_index"] < (doc.metadata["total_chunks"] / 2.0):
+                    filtered.append(doc)
+        if filtered:
+            results = filtered
+        else:
+            # Fallback for older indexes: take the first half of chunks by index
+            sorted_by_chunk = sorted(raw_results, key=lambda d: d.metadata.get("chunk_index", 0))
+            half_len = max(1, len(sorted_by_chunk) // 2)
+            results = sorted_by_chunk[:half_len]
+
+    if permitted_units:
+        unit_filtered = [
+            doc for doc in results
+            if any(u.lower() in doc.page_content.lower() for u in permitted_units)
+        ]
+        if unit_filtered:
+            results = unit_filtered
+
+    final_results = results[:top_k]
+    if not final_results:
+        raise ValueError(
+            f"No relevant content found for topic '{query}' within the permitted examination scope in document '{document_id}'."
+        )
+    return final_results
