@@ -1,0 +1,25 @@
+{
+  "document_id": "curriculum_class_1",
+  "original_filename": "textbook.pdf",
+  "safe_filename": "class_1_textbook.pdf",
+  "grade": "Class 1",
+  "subject": "Mathematics",
+  "units": [
+    "Lesson 1: Spatial Understanding",
+    "Lesson 2: Solids Around Us",
+    "Lesson 3: Digits (1-9)",
+    "Lesson 4: Zero",
+    "Lesson 5: Addition (Sum not more than 9)",
+    "Lesson 6: Subtraction",
+    "Lesson 7: Number 10",
+    "Lesson 8: Units and Tens",
+    "Lesson 9: Number 11 to 20"
+  ],
+  "syllabus_scope": null,
+  "num_chunks": 27,
+  "num_pages": null,
+  "file_size_bytes": 0,
+  "uploaded_at": "2026-10-27T00:24:28.549181",
+  "has_index": true,
+  "text_preview": ""
+}

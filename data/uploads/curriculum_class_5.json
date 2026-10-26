@@ -1,0 +1,26 @@
+{
+  "document_id": "curriculum_class_5",
+  "original_filename": "textbook.pdf",
+  "safe_filename": "class_5_textbook.pdf",
+  "grade": "Class 5",
+  "subject": "Mathematics",
+  "units": [
+    "Unit 1: 5-digit numbers",
+    "Unit 2: Addition",
+    "Unit 3: Subtraction",
+    "Unit 4: Factors and multiples",
+    "Unit 5: Fractions",
+    "Unit 6: Angles",
+    "Unit 7: Circles",
+    "Unit 8: Length",
+    "Unit 9: Perimeter and Area",
+    "Unit 10: Data Handling"
+  ],
+  "syllabus_scope": null,
+  "num_chunks": 113,
+  "num_pages": null,
+  "file_size_bytes": 0,
+  "uploaded_at": "2026-10-27T00:34:02.139804",
+  "has_index": true,
+  "text_preview": ""
+}

@@ -1,0 +1,25 @@
+{
+  "document_id": "curriculum_class_4",
+  "original_filename": "textbook.pdf",
+  "safe_filename": "class_4_textbook.pdf",
+  "grade": "Class 4",
+  "subject": "Mathematics",
+  "units": [
+    "Chapter 1: Perimeter and Area of simple Geometrical figures",
+    "Chapter 2: Numbers",
+    "Chapter 3: Addition",
+    "Chapter 4: Subtraction",
+    "Chapter 5: Multiplication",
+    "Chapter 6: Division",
+    "Chapter 7: Circles",
+    "Chapter 8: Mental Arithmetic",
+    "Chapter 9: Fractional Numbers"
+  ],
+  "syllabus_scope": null,
+  "num_chunks": 110,
+  "num_pages": null,
+  "file_size_bytes": 0,
+  "uploaded_at": "2026-10-27T00:31:40.310527",
+  "has_index": true,
+  "text_preview": ""
+}

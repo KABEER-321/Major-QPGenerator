@@ -223,7 +223,7 @@ def test_scenario_7_final_uses_full_syllabus(tmp_path, monkeypatch):
 
     assert target_doc.document_id == "doc10"
     assert req.curriculum_grade == "Class 10"
-    assert "Full Syllabus" in req.syllabus_scope
+    assert "Full syllabus" in req.syllabus_scope
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,21 @@
+{
+  "document_id": "curriculum_class_3",
+  "original_filename": "textbook.pdf",
+  "safe_filename": "class_3_textbook.pdf",
+  "grade": "Class 3",
+  "subject": "Mathematics",
+  "units": [
+    "Chapter 1: Shapes",
+    "Chapter 2: Numbers",
+    "Chapter 3: Addition",
+    "Chapter 4: Subtraction",
+    "Chapter 5: Multiplication"
+  ],
+  "syllabus_scope": null,
+  "num_chunks": 92,
+  "num_pages": null,
+  "file_size_bytes": 0,
+  "uploaded_at": "2026-10-27T00:29:22.301407",
+  "has_index": true,
+  "text_preview": ""
+}

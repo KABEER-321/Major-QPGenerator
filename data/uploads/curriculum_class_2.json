@@ -1,0 +1,22 @@
+{
+  "document_id": "curriculum_class_2",
+  "original_filename": "textbook.pdf",
+  "safe_filename": "class_2_textbook.pdf",
+  "grade": "Class 2",
+  "subject": "Mathematics",
+  "units": [
+    "Lesson 1: Shapes and Spatial Understanding",
+    "Lesson 2: Numbers",
+    "Lesson 3: Addition",
+    "Lesson 4: Subtraction",
+    "Lesson 5: Multiplication",
+    "Lesson 6: Division"
+  ],
+  "syllabus_scope": null,
+  "num_chunks": 69,
+  "num_pages": null,
+  "file_size_bytes": 0,
+  "uploaded_at": "2026-10-27T00:26:49.208881",
+  "has_index": true,
+  "text_preview": ""
+}

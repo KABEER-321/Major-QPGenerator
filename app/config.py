@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     DATA_DIR: Path = Path(__file__).resolve().parent.parent / "data"
 
     @property
+    def curriculum_dir(self) -> Path:
+        """Directory for permanently stored curriculum textbooks."""
+        d = self.DATA_DIR / "curriculum"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    @property
     def uploads_dir(self) -> Path:
         """Directory for uploaded syllabus/textbook files."""
         d = self.DATA_DIR / "uploads"

@@ -13,7 +13,10 @@
 # close, not an exact keyword match. The embedding model is what converts
 # human-readable text into vectors that FAISS can compare.
 
+import logging
+import time
 from pathlib import Path
+from typing import Optional, Union
 
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
@@ -21,30 +24,66 @@ from langchain_core.documents import Document
 from app.config import settings
 from app.model import get_embeddings
 
+logger = logging.getLogger(__name__)
+
 
 def build_faiss_index(
-    chunks: list[dict],
+    chunks: list[dict | Document],
     document_id: str,
+    batch_size: int = 20,
 ) -> FAISS:
     """
     Build a FAISS index from text chunks and save it to disk.
+    Embeds in batches with automatic rate-limit (429) backoff.
 
     Args:
-        chunks: List of dicts with 'content' and 'metadata' keys.
+        chunks: List of dicts with 'content' and 'metadata' keys, or Document objects.
         document_id: Unique ID used as the folder name for saving.
+        batch_size: Number of documents to embed per request batch.
 
     Returns:
         The FAISS vector store object.
     """
-    # Convert chunk dicts into LangChain Document objects
+    # Convert chunk dicts or Documents into LangChain Document objects
     documents = [
-        Document(page_content=c["content"], metadata=c["metadata"])
+        c if isinstance(c, Document) else Document(page_content=c["content"], metadata=c.get("metadata", {}))
         for c in chunks
     ]
+    if not documents:
+        raise ValueError(f"No documents provided to build index for {document_id}")
 
     embeddings = get_embeddings()
-    # FAISS.from_documents embeds all texts and builds the index
-    vectorstore = FAISS.from_documents(documents, embeddings)
+
+    vectorstore = None
+    total_docs = len(documents)
+
+    for i in range(0, total_docs, batch_size):
+        batch = documents[i : i + batch_size]
+        max_attempts = 5
+        for attempt in range(1, max_attempts + 1):
+            try:
+                if vectorstore is None:
+                    vectorstore = FAISS.from_documents(batch, embeddings)
+                else:
+                    vectorstore.add_documents(batch)
+                break
+            except Exception as e:
+                err_str = str(e)
+                if ("429" in err_str or "RESOURCE_EXHAUSTED" in err_str) and attempt < max_attempts:
+                    wait_time = 20 * attempt
+                    logger.warning(
+                        "Rate limit 429 during embedding for %s (batch %d/%d). Sleeping %ds...",
+                        document_id,
+                        i // batch_size + 1,
+                        (total_docs + batch_size - 1) // batch_size,
+                        wait_time,
+                    )
+                    time.sleep(wait_time)
+                else:
+                    raise
+
+        if i + batch_size < total_docs:
+            time.sleep(1.0)
 
     # Save the index so it can be reloaded later without re-embedding
     save_path = settings.indexes_dir / document_id

@@ -500,10 +500,10 @@ def create_default_blueprint(
 
 class PaperGenerateRequest(BaseModel):
     """Request body for generating a question paper."""
-    document_id: str = Field(..., min_length=1, description="ID of the uploaded document")
-    grade: str = Field(..., min_length=1, description="Grade or class (e.g. '10', 'Class 8')")
+    document_id: Optional[str] = Field(default="", description="Optional ID of document; defaults to auto-resolved textbook")
+    grade: str = Field(..., min_length=1, description="Grade or class (e.g. '1', '2', '3', '4', '5')")
     subject: str = Field(default="Mathematics", description="Subject name")
-    topic: str = Field(..., min_length=1, description="Chapter or topic to focus on")
+    topic: Optional[str] = Field(default="Mathematics Curriculum", description="Chapter or topic to focus on")
     exam_type: ExamType = Field(
         default=ExamType.FINAL,
         description="Examination type: prerequisite, midterm, or final",
@@ -588,10 +588,10 @@ class PaperGenerateRequest(BaseModel):
 
 class BatchPaperGenerateRequest(BaseModel):
     """Request body for generating multiple unique paper versions."""
-    document_id: str = Field(..., min_length=1, description="ID of the uploaded document")
-    grade: str = Field(..., min_length=1, description="Grade or class (e.g. '10', 'Class 8')")
+    document_id: Optional[str] = Field(default="", description="Optional ID of document; defaults to auto-resolved textbook")
+    grade: str = Field(..., min_length=1, description="Grade or class (e.g. '1', '2', '3', '4', '5')")
     subject: str = Field(default="Mathematics", description="Subject name")
-    topic: str = Field(..., min_length=1, description="Chapter or topic to focus on")
+    topic: Optional[str] = Field(default="Mathematics Curriculum", description="Chapter or topic to focus on")
     exam_type: ExamType = Field(
         default=ExamType.FINAL,
         description="Examination type: prerequisite, midterm, or final",

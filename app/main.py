@@ -59,6 +59,16 @@ from app.documents_store import (
     find_best_document_for_grade,
     find_documents_by_class_and_subject,
 )
+from app.curriculum import (
+    CURRICULUM_CHAPTERS,
+    get_textbook_path,
+    get_curriculum_doc_id,
+    get_chapters_for_class,
+    get_midterm_chapters_for_class,
+    get_second_half_chapters_for_class,
+    ensure_all_curriculum_textbooks_indexed,
+    get_curriculum_status,
+)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -79,6 +89,26 @@ app = FastAPI(
     ),
     version="0.1.0",
 )
+
+
+@app.on_event("startup")
+def on_startup():
+    """Ensure curriculum textbooks are indexed on application start."""
+    logger.info("Checking QPGen permanent curriculum textbooks...")
+    try:
+        ensure_all_curriculum_textbooks_indexed()
+    except Exception as e:
+        logger.warning("Startup curriculum indexing notice: %s", e)
+
+
+# ---------------------------------------------------------------------------
+# GET /curriculum/status — check availability and indexing of Class 1-5 textbooks
+# ---------------------------------------------------------------------------
+
+@app.get("/curriculum/status", tags=["Curriculum"])
+def get_curriculum_readiness():
+    """Return availability and indexing readiness status of the 5 stored class textbooks."""
+    return get_curriculum_status()
 
 
 # ---------------------------------------------------------------------------
@@ -354,42 +384,28 @@ def resolve_curriculum_and_passages(
     """
     Resolve curriculum class, examination scope, target document, and retrieved passages
     based on the examination type (prerequisite, midterm, or final).
-    Ensures that:
-    1. Prerequisite strictly assesses previous class (Class = academic_class - 1).
-    2. Midterm strictly assesses the first half of the syllabus.
-    3. Final assesses the full syllabus.
-    4. Missing prerequisite syllabus produces a clear error instead of silent fallback.
+    Uses the 5 permanently stored textbooks (Classes 1-5) by default.
     """
     exam_type = request.exam_type or ExamType.FINAL
     academic_class = request.academic_grade or request.grade
+    acad_num = parse_grade_number(academic_class)
 
-    # Load the requested document
-    try:
-        selected_doc = load_document_record(request.document_id)
-    except FileNotFoundError:
-        # Fallback for lightweight / mocked document records
-        selected_doc = DocumentRecord(
-            document_id=request.document_id,
-            original_filename=f"{request.document_id}.pdf",
-            safe_filename=f"{request.document_id}.pdf",
-            grade=request.grade,
-            subject=request.subject,
-            num_chunks=1,
-            has_index=True,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-
-    doc_grade_num = (
-        parse_grade_number(selected_doc.grade)
-        if selected_doc.grade
-        else parse_grade_number(selected_doc.original_filename)
-    )
+    # If document_id is not specified or is a curriculum document, route to permanent textbooks
+    is_auto_curriculum = not request.document_id or request.document_id.startswith("curriculum_class_")
 
     forbidden_units: list[str] = []
 
     if exam_type == ExamType.PREREQUISITE:
         # Rule: Prerequisite curriculum class = Selected academic class - 1
+        if acad_num is not None and acad_num <= 1:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Prerequisite Examination is not available for {format_grade_display(academic_class)} "
+                    "(prerequisite assessments require a preceding academic class, which is not provided)."
+                ),
+            )
+
         try:
             prev_class = get_previous_class(academic_class)
         except ValueError as e:
@@ -397,42 +413,79 @@ def resolve_curriculum_and_passages(
 
         target_grade_num = parse_grade_number(prev_class)
 
-        # Check if the currently selected document belongs to the previous class
-        if doc_grade_num == target_grade_num:
-            target_doc = selected_doc
-        else:
-            # Search for a syllabus document matching the previous class
-            alt_doc = find_best_document_for_grade(grade=prev_class, subject=request.subject)
-            if alt_doc is not None:
-                target_doc = alt_doc
-                request.document_id = alt_doc.document_id
-                logger.info(
-                    "Prerequisite routing: automatically using Class %s syllabus document '%s'",
-                    prev_class,
-                    alt_doc.original_filename,
-                )
-            else:
-                # Do NOT silently substitute current class
+        if is_auto_curriculum and target_grade_num is not None:
+            tb_path = get_textbook_path(target_grade_num)
+            if not tb_path.exists():
                 raise HTTPException(
                     status_code=422,
-                    detail=(
-                        f"Prerequisite Examination requires syllabus for Class {prev_class} {request.subject} "
-                        f"(for students enrolled in {format_grade_display(academic_class)}). "
-                        f"The selected document '{selected_doc.original_filename}' is for Class {doc_grade_num or 'Unknown'}, "
-                        f"and no syllabus document was found for Class {prev_class}. "
-                        f"Please upload or select the Class {prev_class} syllabus document."
-                    ),
+                    detail=f"Textbook for Class {target_grade_num} not found at {tb_path}. Please provide the textbook.",
                 )
+            target_doc_id = get_curriculum_doc_id(target_grade_num)
+            try:
+                target_doc = load_document_record(target_doc_id)
+            except FileNotFoundError:
+                from app.curriculum import index_curriculum_textbook
+                target_doc = index_curriculum_textbook(target_grade_num)
+
+            request.document_id = target_doc.document_id
+        else:
+            # Custom document path (e.g. from legacy tests)
+            try:
+                selected_doc = load_document_record(request.document_id)
+            except FileNotFoundError:
+                selected_doc = DocumentRecord(
+                    document_id=request.document_id,
+                    original_filename=f"{request.document_id}.pdf",
+                    safe_filename=f"{request.document_id}.pdf",
+                    grade=request.grade,
+                    subject=request.subject,
+                    num_chunks=1,
+                    has_index=True,
+                )
+            doc_grade_num = (
+                parse_grade_number(selected_doc.grade)
+                if selected_doc.grade
+                else parse_grade_number(selected_doc.original_filename)
+            )
+            if doc_grade_num == target_grade_num:
+                target_doc = selected_doc
+            else:
+                alt_doc = find_best_document_for_grade(grade=prev_class, subject=request.subject)
+                if alt_doc is not None:
+                    target_doc = alt_doc
+                    request.document_id = alt_doc.document_id
+                else:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            f"Prerequisite Examination requires syllabus for Class {prev_class} {request.subject} "
+                            f"(for students enrolled in {format_grade_display(academic_class)}). "
+                            f"The selected document '{selected_doc.original_filename}' is for Class {doc_grade_num or 'Unknown'}, "
+                            f"and no syllabus document was found for Class {prev_class}. "
+                            f"Please upload or select the Class {prev_class} syllabus document."
+                        ),
+                    )
 
         request.curriculum_grade = format_grade_display(prev_class)
         request.academic_grade = format_grade_display(academic_class)
+        chapters = get_chapters_for_class(target_grade_num) if target_grade_num else (target_doc.units or [])
         request.syllabus_scope = (
             request.syllabus_scope
-            or f"{format_grade_display(prev_class)} Foundation Prerequisites for {format_grade_display(academic_class)}"
+            or (
+                f"Full syllabus of {request.curriculum_grade} Mathematics "
+                f"({len(chapters)} chapters: {', '.join(chapters)}) "
+                f"[Prerequisite for {request.academic_grade}]"
+            )
+        )
+
+        query_topic = (
+            request.topic
+            if (request.topic and request.topic not in ("Mathematics Curriculum", "General Math"))
+            else f"{request.curriculum_grade} Mathematics foundational concepts"
         )
 
         try:
-            passages = retrieve_relevant_chunks(target_doc.document_id, request.topic)
+            passages = retrieve_relevant_chunks(target_doc.document_id, query_topic)
         except FileNotFoundError as e:
             raise HTTPException(status_code=404, detail=str(e))
         except ValueError as e:
@@ -443,24 +496,62 @@ def resolve_curriculum_and_passages(
         curr_grade = format_grade_display(academic_class)
         request.curriculum_grade = curr_grade
         request.academic_grade = curr_grade
-        target_doc = selected_doc
 
-        first_half_units: list[str] = []
+        if is_auto_curriculum and acad_num is not None:
+            tb_path = get_textbook_path(acad_num)
+            if not tb_path.exists():
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Textbook for Class {acad_num} not found at {tb_path}. Please provide the textbook.",
+                )
+            target_doc_id = get_curriculum_doc_id(acad_num)
+            try:
+                target_doc = load_document_record(target_doc_id)
+            except FileNotFoundError:
+                from app.curriculum import index_curriculum_textbook
+                target_doc = index_curriculum_textbook(acad_num)
+            request.document_id = target_doc.document_id
+            first_half_units = get_midterm_chapters_for_class(acad_num)
+            forbidden_units = get_second_half_chapters_for_class(acad_num)
+        else:
+            try:
+                target_doc = load_document_record(request.document_id)
+            except FileNotFoundError:
+                target_doc = DocumentRecord(
+                    document_id=request.document_id,
+                    original_filename=f"{request.document_id}.pdf",
+                    safe_filename=f"{request.document_id}.pdf",
+                    grade=request.grade,
+                    subject=request.subject,
+                    num_chunks=1,
+                    has_index=True,
+                )
+            if target_doc.units and len(target_doc.units) > 1:
+                first_half_units = determine_midterm_scope(target_doc.units)
+                forbidden_units = target_doc.units[len(first_half_units):]
+            else:
+                first_half_units = []
+                forbidden_units = []
+
         if request.syllabus_scope:
             scope_str = request.syllabus_scope
-        elif target_doc.units and len(target_doc.units) > 1:
-            first_half_units = determine_midterm_scope(target_doc.units)
-            forbidden_units = target_doc.units[len(first_half_units):]
-            scope_str = f"First half of syllabus: {', '.join(first_half_units)}"
+        elif first_half_units:
+            scope_str = f"First half of {curr_grade} syllabus ({len(first_half_units)} chapters: {', '.join(first_half_units)})"
         else:
-            scope_str = "First half of syllabus (Unit 1 to midpoint)"
+            scope_str = f"First half of {curr_grade} syllabus (Unit 1 to midpoint)"
 
         request.syllabus_scope = scope_str
+
+        query_topic = (
+            request.topic
+            if (request.topic and request.topic not in ("Mathematics Curriculum", "General Math"))
+            else (", ".join(first_half_units) if first_half_units else f"{curr_grade} Mathematics first half")
+        )
 
         try:
             passages = retrieve_relevant_chunks(
                 target_doc.document_id,
-                request.topic,
+                query_topic,
                 first_half_only=True,
                 permitted_units=first_half_units if first_half_units else None,
             )
@@ -474,11 +565,54 @@ def resolve_curriculum_and_passages(
         curr_grade = format_grade_display(academic_class)
         request.curriculum_grade = curr_grade
         request.academic_grade = curr_grade
-        request.syllabus_scope = request.syllabus_scope or "Full Syllabus"
-        target_doc = selected_doc
+
+        if is_auto_curriculum and acad_num is not None:
+            tb_path = get_textbook_path(acad_num)
+            if not tb_path.exists():
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Textbook for Class {acad_num} not found at {tb_path}. Please provide the textbook.",
+                )
+            target_doc_id = get_curriculum_doc_id(acad_num)
+            try:
+                target_doc = load_document_record(target_doc_id)
+            except FileNotFoundError:
+                from app.curriculum import index_curriculum_textbook
+                target_doc = index_curriculum_textbook(acad_num)
+            request.document_id = target_doc.document_id
+            chapters = get_chapters_for_class(acad_num)
+        else:
+            try:
+                target_doc = load_document_record(request.document_id)
+            except FileNotFoundError:
+                target_doc = DocumentRecord(
+                    document_id=request.document_id,
+                    original_filename=f"{request.document_id}.pdf",
+                    safe_filename=f"{request.document_id}.pdf",
+                    grade=request.grade,
+                    subject=request.subject,
+                    num_chunks=1,
+                    has_index=True,
+                )
+            chapters = target_doc.units or []
+
+        request.syllabus_scope = (
+            request.syllabus_scope
+            or (
+                f"Full syllabus of {curr_grade} Mathematics ({len(chapters)} chapters: {', '.join(chapters)})"
+                if chapters
+                else "Full Syllabus"
+            )
+        )
+
+        query_topic = (
+            request.topic
+            if (request.topic and request.topic not in ("Mathematics Curriculum", "General Math"))
+            else f"{curr_grade} Mathematics comprehensive curriculum"
+        )
 
         try:
-            passages = retrieve_relevant_chunks(target_doc.document_id, request.topic)
+            passages = retrieve_relevant_chunks(target_doc.document_id, query_topic)
         except FileNotFoundError as e:
             raise HTTPException(status_code=404, detail=str(e))
         except ValueError as e:

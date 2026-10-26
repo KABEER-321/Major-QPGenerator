@@ -11,8 +11,10 @@ dist/
 build/
 
 # Data files (generated at runtime)
-data/uploads/
-data/indexes/
+data/uploads/*
+!data/uploads/curriculum_class_*.json
+data/indexes/*
+!data/indexes/curriculum_class_*
 data/papers/
 data/e2e_exports/
 
