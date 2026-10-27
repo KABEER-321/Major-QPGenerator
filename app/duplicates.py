@@ -83,6 +83,16 @@ SCENARIO_CLUSTERS = [
         "primary": {"election", "votes", "polled", "candidate", "majority", "margin", "defeated"},
         "min_matches": 2,
     },
+    {
+        "name": "Spatial Vocabulary & Positioning",
+        "primary": {"spatial", "top", "bottom", "under", "inside", "outside", "above", "below"},
+        "min_matches": 2,
+    },
+    {
+        "name": "Marble Units & Place Value Grouping",
+        "primary": {"marbles", "collection", "single units", "group of 1 ten", "group of ten"},
+        "min_matches": 2,
+    },
 ]
 
 ARITH_OPS = {
@@ -296,6 +306,25 @@ def calculate_template_similarity(text1: str, text2: str) -> float:
     return _token_jaccard(toks1, toks2)
 
 
+def check_shared_phrase(text1: str, text2: str, min_words: int = 4) -> tuple[bool, Optional[str]]:
+    """Check if two questions share an identical contiguous sequence of content words."""
+    norm1 = normalize_question_text(text1)
+    norm2 = normalize_question_text(text2)
+    words1 = [w for w in norm1.split() if w not in STOPWORDS and len(w) > 2]
+    words2 = [w for w in norm2.split() if w not in STOPWORDS and len(w) > 2]
+
+    if len(words1) < min_words or len(words2) < min_words:
+        return False, None
+
+    words2_joined = " " + " ".join(words2) + " "
+    for i in range(len(words1) - min_words + 1):
+        gram = " ".join(words1[i : i + min_words])
+        if f" {gram} " in words2_joined:
+            return True, gram
+
+    return False, None
+
+
 def is_duplicate(
     question: Union[Question, str],
     existing_questions: list[Union[Question, str]],
@@ -370,7 +399,29 @@ def is_duplicate(
                     f"the same concept/story as: '{ex_text}'"
                 )
 
-        # 4. If both are MCQs, check if options and answers match
+        # 4. Shared distinctive phrase check (e.g. recycling textbook illustration text like 'bird sitting top tree')
+        has_phrase, phrase = check_shared_phrase(q_text, ex_text, min_words=4)
+        if has_phrase:
+            return True, f"Shared phrase detected ('{phrase}'): questions recycle substantially the same scenario/illustration as: '{ex_text[:60]}...'"
+
+        # 5. Same chapter concept collision check across sections
+        if (
+            isinstance(question, Question)
+            and isinstance(ex, Question)
+            and question.chapter
+            and ex.chapter
+        ):
+            q_ch_clean = re.sub(r'^(?:Lesson|Chapter|Unit)\s*\d+[:\s\-]*', '', question.chapter, flags=re.IGNORECASE).strip().lower()
+            ex_ch_clean = re.sub(r'^(?:Lesson|Chapter|Unit)\s*\d+[:\s\-]*', '', ex.chapter, flags=re.IGNORECASE).strip().lower()
+            if q_ch_clean and q_ch_clean == ex_ch_clean:
+                c1 = get_content_tokens(q_text)
+                c2 = get_content_tokens(ex_text)
+                if c1 and c2:
+                    c_sim = _token_jaccard(c1, c2)
+                    if c_sim >= 0.35:
+                        return True, f"Both questions test substantially the same concept from '{question.chapter}' (overlap {c_sim:.2f}): '{ex_text[:60]}...'"
+
+        # 6. If both are MCQs, check if options and answers match
         if isinstance(question, Question) and isinstance(ex, Question):
             if (
                 question.question_type == QuestionType.MULTIPLE_CHOICE

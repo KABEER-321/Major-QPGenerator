@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login — QPGen Question Paper Generator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --primary-light: #eff6ff;
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
+      --border-focus: #3b82f6;
+      --danger: #ef4444;
+      --danger-bg: #fef2f2;
+      --danger-border: #fecaca;
+      --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+      --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.07), 0 2px 4px -2px rgb(0 0 0 / 0.07);
+      --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.08), 0 8px 10px -6px rgb(0 0 0 / 0.08);
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 16px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: var(--bg);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .login-container {
+      width: 100%;
+      max-width: 440px;
+    }
+
+    .brand-header {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+
+    .brand-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+      text-decoration: none;
+    }
+
+    .brand-logo {
+      width: 42px;
+      height: 42px;
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      color: #ffffff;
+      font-weight: 700;
+      font-size: 19px;
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 10px rgba(37, 99, 235, 0.25);
+    }
+
+    .brand-title {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--text-main);
+      letter-spacing: -0.02em;
+    }
+
+    .edition-tag {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--primary);
+      background: var(--primary-light);
+      padding: 3px 8px;
+      border-radius: 9999px;
+      border: 1px solid rgba(37, 99, 235, 0.2);
+    }
+
+    .brand-subtitle {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-xl);
+      padding: 36px 32px;
+    }
+
+    .card-title {
+      font-size: 19px;
+      font-weight: 600;
+      color: var(--text-main);
+      margin-bottom: 6px;
+    }
+
+    .card-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 24px;
+      line-height: 1.45;
+    }
+
+    .notice-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      padding: 8px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      color: #475569;
+      margin-bottom: 20px;
+    }
+
+    .notice-badge svg {
+      flex-shrink: 0;
+      color: var(--primary);
+    }
+
+    .error-alert {
+      display: none;
+      background: var(--danger-bg);
+      border: 1px solid var(--danger-border);
+      color: #991b1b;
+      font-size: 13px;
+      padding: 12px 14px;
+      border-radius: var(--radius-sm);
+      margin-bottom: 20px;
+      line-height: 1.4;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #334155;
+      margin-bottom: 7px;
+    }
+
+    .input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .input-icon {
+      position: absolute;
+      left: 12px;
+      color: #94a3b8;
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+    }
+
+    .form-input {
+      width: 100%;
+      height: 44px;
+      padding: 0 12px 0 40px;
+      font-family: inherit;
+      font-size: 14px;
+      color: var(--text-main);
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      transition: all 0.15s ease;
+      outline: none;
+    }
+
+    .form-input:focus {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+    }
+
+    .password-input {
+      padding-right: 44px;
+    }
+
+    .password-toggle-btn {
+      position: absolute;
+      right: 4px;
+      top: 4px;
+      bottom: 4px;
+      width: 36px;
+      background: transparent;
+      border: none;
+      color: #94a3b8;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius-sm);
+      transition: color 0.15s ease;
+    }
+
+    .password-toggle-btn:hover {
+      color: var(--text-main);
+    }
+
+    .btn-submit {
+      width: 100%;
+      height: 46px;
+      background: var(--primary);
+      color: #ffffff;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      border: none;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: background 0.15s ease, transform 0.05s ease;
+      box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
+    }
+
+    .btn-submit:hover {
+      background: var(--primary-hover);
+    }
+
+    .btn-submit:active {
+      transform: translateY(1px);
+    }
+
+    .btn-submit:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .spinner {
+      display: none;
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(255, 255, 255, 0.4);
+      border-radius: 50%;
+      border-top-color: #ffffff;
+      animation: spin 0.7s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .footer-note {
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 24px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="login-container">
+    <div class="brand-header">
+      <div class="brand-badge">
+        <div class="brand-logo">QP</div>
+        <span class="brand-title">QPGen</span>
+        <span class="edition-tag">SaaS Edition</span>
+      </div>
+      <p class="brand-subtitle">AI-Based Curriculum-Aligned Mathematics Question Paper Generator</p>
+    </div>
+
+    <div class="card">
+      <h1 class="card-title">Sign in to your account</h1>
+      <p class="card-desc">Enter your teacher or administrator credentials to access curriculum textbooks and question paper tools.</p>
+
+      <div class="notice-badge">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        </svg>
+        <span>Authorized Staff Only • No Public Registration</span>
+      </div>
+
+      <div id="errorAlert" class="error-alert" role="alert"></div>
+
+      <form id="loginForm" onsubmit="handleLogin(event)">
+        <div class="form-group">
+          <label class="form-label" for="identifierInput">Username or Email</label>
+          <div class="input-wrapper">
+            <span class="input-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+              </svg>
+            </span>
+            <input 
+              type="text" 
+              id="identifierInput" 
+              class="form-input" 
+              placeholder="e.g. teacher1 or admin@qpgen.local" 
+              required 
+              autocomplete="username"
+              autofocus
+            />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="passwordInput">Password</label>
+          <div class="input-wrapper">
+            <span class="input-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+              </svg>
+            </span>
+            <input 
+              type="password" 
+              id="passwordInput" 
+              class="form-input password-input" 
+              placeholder="••••••••" 
+              required 
+              autocomplete="current-password"
+            />
+            <button 
+              type="button" 
+              id="togglePasswordBtn" 
+              class="password-toggle-btn" 
+              aria-label="Toggle password visibility"
+              onclick="togglePasswordVisibility()"
+            >
+              <svg id="eyeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <button type="submit" id="submitBtn" class="btn-submit">
+          <span id="btnText">Sign In</span>
+          <div id="btnSpinner" class="spinner"></div>
+        </button>
+      </form>
+    </div>
+
+    <div class="footer-note">
+      Protected Academic Infrastructure • Contact your administrator for access
+    </div>
+  </div>
+
+  <script>
+    function togglePasswordVisibility() {
+      const input = document.getElementById('passwordInput');
+      const icon = document.getElementById('eyeIcon');
+      if (input.type === 'password') {
+        input.type = 'text';
+        icon.innerHTML = `
+          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+          <line x1="1" y1="1" x2="23" y2="23"></line>
+        `;
+      } else {
+        input.type = 'password';
+        icon.innerHTML = `
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+          <circle cx="12" cy="12" r="3"></circle>
+        `;
+      }
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      const identifier = document.getElementById('identifierInput').value.trim();
+      const password = document.getElementById('passwordInput').value;
+      const errorAlert = document.getElementById('errorAlert');
+      const submitBtn = document.getElementById('submitBtn');
+      const btnText = document.getElementById('btnText');
+      const btnSpinner = document.getElementById('btnSpinner');
+
+      errorAlert.style.display = 'none';
+      errorAlert.textContent = '';
+
+      if (!identifier || !password) {
+        errorAlert.textContent = 'Please enter both username/email and password.';
+        errorAlert.style.display = 'block';
+        return;
+      }
+
+      submitBtn.disabled = true;
+      btnText.style.display = 'none';
+      btnSpinner.style.display = 'block';
+
+      try {
+        const response = await fetch('/auth/login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ identifier, password }),
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          const msg = data.detail || 'Login failed. Please check your credentials.';
+          errorAlert.textContent = msg;
+          errorAlert.style.display = 'block';
+          submitBtn.disabled = false;
+          btnText.style.display = 'inline';
+          btnSpinner.style.display = 'none';
+          return;
+        }
+
+        // Login successful: redirect to role-specific dashboard
+        if (data.user && data.user.role === 'admin') {
+          window.location.href = '/admin';
+        } else {
+          window.location.href = '/';
+        }
+      } catch (err) {
+        errorAlert.textContent = 'Network or server error. Please try again.';
+        errorAlert.style.display = 'block';
+        submitBtn.disabled = false;
+        btnText.style.display = 'inline';
+        btnSpinner.style.display = 'none';
+      }
+    }
+  </script>
+</body>
+</html>

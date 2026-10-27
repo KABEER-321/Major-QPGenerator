@@ -3,6 +3,7 @@
 # All settings are centralized here so no secrets are hard-coded anywhere else.
 
 import os
+from typing import Optional
 from pathlib import Path
 from pydantic_settings import BaseSettings
 from pydantic import ConfigDict
@@ -41,6 +42,21 @@ class Settings(BaseSettings):
 
     # Base directory for all data files (uploads, indexes, papers)
     DATA_DIR: Path = Path(__file__).resolve().parent.parent / "data"
+
+    # Authentication & Security Settings
+    ADMIN_USERNAME: str = "admin"
+    ADMIN_EMAIL: str = "admin@qpgen.local"
+    ADMIN_PASSWORD: str = ""
+    SESSION_SECRET_KEY: str = ""
+    SESSION_MAX_AGE_SECONDS: int = 86400  # 24 hours
+    RATE_LIMIT_FAILED_LOGINS: int = 5
+    RATE_LIMIT_WINDOW_SECONDS: int = 900  # 15 minutes
+    USERS_DB_PATH: Optional[Path] = None
+
+    @property
+    def users_db_path(self) -> Path:
+        """Path to persistent SQLite database for user accounts and sessions."""
+        return self.USERS_DB_PATH or (self.DATA_DIR / "users.db")
 
     @property
     def curriculum_dir(self) -> Path:

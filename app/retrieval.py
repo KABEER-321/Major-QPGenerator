@@ -224,7 +224,37 @@ def retrieve_relevant_chunks(
 
         # Strictly enforce allowed docs only
         results = [d for d in raw_results if is_chunk_in_permitted_scope(d, permitted_units, first_half_only)]
-        if not results:
+
+        # Guarantee balanced representation across ALL permitted units:
+        # Every permitted chapter must have at least one representative chunk in results
+        if permitted_units:
+            seen_chunk_ids = {d.metadata.get("chunk_id", id(d)) for d in results}
+            balanced_passages: list[Document] = []
+
+            # First, collect representative chunks for each permitted unit
+            for pu in permitted_units:
+                pu_clean = pu.strip().lower()
+                matching_chunks = [
+                    d for d in allowed_docs
+                    if is_chunk_in_permitted_scope(d, [pu], first_half_only)
+                ]
+                if matching_chunks:
+                    # Prefer chunks already ranked high by similarity search if available
+                    ranked_in_pu = [d for d in results if d in matching_chunks]
+                    chosen = ranked_in_pu[:2] if ranked_in_pu else matching_chunks[:2]
+                    for chk in chosen:
+                        cid = chk.metadata.get("chunk_id", id(chk))
+                        if cid not in {d.metadata.get("chunk_id", id(d)) for d in balanced_passages}:
+                            balanced_passages.append(chk)
+
+            # Supplement with remaining top similarity results
+            for r in results:
+                cid = r.metadata.get("chunk_id", id(r))
+                if cid not in {d.metadata.get("chunk_id", id(d)) for d in balanced_passages}:
+                    balanced_passages.append(r)
+
+            results = balanced_passages
+        elif not results:
             results = allowed_docs[:top_k]
         elif len(results) < top_k:
             # Supplement from allowed_docs to give Gemini sufficient context
@@ -245,4 +275,6 @@ def retrieve_relevant_chunks(
             "The paper cannot be grounded in the curriculum without matching passages."
         )
 
-    return results[:top_k]
+    # Return up to max(top_k, len(permitted_units) * 2) so all chapters have room
+    max_k = max(top_k, (len(permitted_units) * 2) if permitted_units else top_k)
+    return results[:max_k]

@@ -11,6 +11,8 @@ dist/
 build/
 
 # Data files (generated at runtime)
+data/users.db*
+.admin_initial_credentials.txt
 data/uploads/*
 !data/uploads/curriculum_class_*.json
 data/indexes/*

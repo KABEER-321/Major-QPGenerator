@@ -25,7 +25,15 @@ from app.documents_store import (
     save_document_record,
 )
 from app.retrieval import build_faiss_index
-from app.schemas import parse_grade_number
+from app.schemas import (
+    ExamType,
+    ExamBlueprint,
+    SectionBlueprint,
+    QuestionType,
+    format_grade_display,
+    get_previous_class,
+    parse_grade_number,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -177,6 +185,346 @@ def get_second_half_chapters_for_class(grade: int | str) -> list[str]:
         return []
     half_count = math.ceil(len(all_ch) / 2.0)
     return all_ch[half_count:]
+
+
+class SyllabusScopeInfo:
+    """Authoritative representation of the syllabus scope for an examination request."""
+    def __init__(
+        self,
+        exam_type: ExamType,
+        academic_grade: str,
+        curriculum_grade: str,
+        target_document_id: str,
+        total_chapters: int,
+        all_chapters: list[str],
+        permitted_chapters: list[str],
+        forbidden_chapters: list[str],
+        scope_description: str,
+    ):
+        self.exam_type = exam_type
+        self.academic_grade = academic_grade
+        self.curriculum_grade = curriculum_grade
+        self.target_document_id = target_document_id
+        self.total_chapters = total_chapters
+        self.all_chapters = all_chapters
+        self.permitted_chapters = permitted_chapters
+        self.forbidden_chapters = forbidden_chapters
+        self.scope_description = scope_description
+
+
+def resolve_authoritative_syllabus_scope(
+    exam_type: ExamType,
+    grade_str: str,
+    custom_doc: Optional[DocumentRecord] = None,
+) -> SyllabusScopeInfo:
+    """
+    Construct one authoritative syllabus-scope selection for an examination request.
+    Enforces:
+    1. Prerequisite Examination:
+       - Uses 100% of the previous class's textbook (Class 2 -> Class 1, Class 3 -> Class 2, etc.)
+       - Class 1 Prerequisite is unavailable unless a previous-level textbook is provided.
+    2. Mid-Semester Examination:
+       - Uses the first half of the selected class's textbook starting from chapter 1.
+       - number_of_chapters = ceil(total_chapters / 2).
+       - Excludes second-half chapters strictly.
+    3. Final Examination:
+       - Uses 100% of the selected class's textbook syllabus with all chapters eligible.
+    4. Metadata Integrity:
+       - If chapter boundaries cannot be identified reliably, raises ValueError instead of guessing.
+    """
+    acad_num = parse_grade_number(grade_str)
+    academic_class = format_grade_display(grade_str)
+
+    if exam_type == ExamType.PREREQUISITE:
+        if acad_num is not None and acad_num <= 1:
+            if not custom_doc or not custom_doc.units:
+                raise ValueError(
+                    f"Prerequisite Examination is not available for {academic_class} "
+                    "unless a previous-level curriculum textbook is provided."
+                )
+            target_grade_str = custom_doc.grade or "Class 0"
+            target_doc_id = custom_doc.document_id
+            all_ch = order_chapters_by_textbook(custom_doc.units)
+        else:
+            prev_class = get_previous_class(grade_str)
+            prev_num = parse_grade_number(prev_class)
+            target_grade_str = format_grade_display(prev_class)
+            target_doc_id = get_curriculum_doc_id(prev_num)
+            all_ch = get_chapters_for_class(prev_num)
+            if not all_ch and custom_doc and custom_doc.units:
+                all_ch = order_chapters_by_textbook(custom_doc.units)
+
+        if not all_ch:
+            raise ValueError(
+                f"No chapter metadata found for prerequisite syllabus {target_grade_str}. "
+                "Cannot reliably determine prerequisite syllabus scope."
+            )
+
+        permitted = list(all_ch)
+        forbidden: list[str] = []
+        desc = (
+            f"Full syllabus of {target_grade_str} Mathematics "
+            f"({len(all_ch)} chapters: {', '.join(all_ch)}) "
+            f"[Prerequisite for {academic_class}]"
+        )
+        return SyllabusScopeInfo(
+            exam_type=exam_type,
+            academic_grade=academic_class,
+            curriculum_grade=target_grade_str,
+            target_document_id=target_doc_id,
+            total_chapters=len(all_ch),
+            all_chapters=all_ch,
+            permitted_chapters=permitted,
+            forbidden_chapters=forbidden,
+            scope_description=desc,
+        )
+
+    elif exam_type == ExamType.MIDTERM:
+        curr_grade_str = academic_class
+        if custom_doc is not None:
+            if not custom_doc.units:
+                raise ValueError(
+                    f"Textbook '{custom_doc.original_filename}' has missing or ambiguous chapter metadata. "
+                    "Cannot reliably identify chapter boundaries for examination syllabus scope."
+                )
+            all_ch = order_chapters_by_textbook(custom_doc.units)
+            target_doc_id = custom_doc.document_id
+        elif acad_num is not None and acad_num in CURRICULUM_CHAPTERS:
+            all_ch = get_chapters_for_class(acad_num)
+            target_doc_id = get_curriculum_doc_id(acad_num)
+        else:
+            raise ValueError(
+                f"Textbook chapter metadata missing for {academic_class}. "
+                "Cannot reliably determine mid-semester chapter boundaries."
+            )
+
+        if len(all_ch) < 2:
+            raise ValueError(
+                f"Cannot determine mid-semester scope: curriculum for {academic_class} "
+                f"has only {len(all_ch)} chapter(s). At least 2 chapters are required."
+            )
+
+        num_mid = math.ceil(len(all_ch) / 2.0)
+        permitted = all_ch[:num_mid]
+        forbidden = all_ch[num_mid:]
+        desc = (
+            f"First half of {curr_grade_str} syllabus "
+            f"({len(permitted)} of {len(all_ch)} chapters: {', '.join(permitted)})"
+        )
+        return SyllabusScopeInfo(
+            exam_type=exam_type,
+            academic_grade=academic_class,
+            curriculum_grade=curr_grade_str,
+            target_document_id=target_doc_id,
+            total_chapters=len(all_ch),
+            all_chapters=all_ch,
+            permitted_chapters=permitted,
+            forbidden_chapters=forbidden,
+            scope_description=desc,
+        )
+
+    else:  # Final Examination
+        curr_grade_str = academic_class
+        if custom_doc is not None:
+            if not custom_doc.units:
+                raise ValueError(
+                    f"Textbook '{custom_doc.original_filename}' has missing or ambiguous chapter metadata. "
+                    "Cannot reliably identify chapter boundaries for examination syllabus scope."
+                )
+            all_ch = order_chapters_by_textbook(custom_doc.units)
+            target_doc_id = custom_doc.document_id
+        elif acad_num is not None and acad_num in CURRICULUM_CHAPTERS:
+            all_ch = get_chapters_for_class(acad_num)
+            target_doc_id = get_curriculum_doc_id(acad_num)
+        else:
+            raise ValueError(
+                f"Textbook chapter metadata missing for {academic_class}. "
+                "Cannot reliably determine final examination syllabus scope."
+            )
+
+        if not all_ch:
+            raise ValueError(
+                f"No chapter metadata found for {academic_class}. "
+                "Cannot verify 100% textbook coverage."
+            )
+
+        permitted = list(all_ch)
+        forbidden = []
+        desc = (
+            f"Full syllabus of {curr_grade_str} Mathematics "
+            f"({len(all_ch)} chapters: {', '.join(all_ch)})"
+        )
+        return SyllabusScopeInfo(
+            exam_type=exam_type,
+            academic_grade=academic_class,
+            curriculum_grade=curr_grade_str,
+            target_document_id=target_doc_id,
+            total_chapters=len(all_ch),
+            all_chapters=all_ch,
+            permitted_chapters=permitted,
+            forbidden_chapters=forbidden,
+            scope_description=desc,
+        )
+
+
+def is_computational_chapter(chapter_name: str) -> bool:
+    """Return True if chapter has operational depth suitable for multi-step / long-answer problems."""
+    c = chapter_name.lower()
+    return any(
+        k in c
+        for k in (
+            "addition",
+            "subtraction",
+            "multiplication",
+            "division",
+            "fraction",
+            "decimal",
+            "perimeter",
+            "area",
+            "factors",
+            "multiples",
+            "unit",
+            "tens",
+            "number 11",
+            "5-digit",
+            "data handling",
+            "length",
+            "mental arithmetic",
+            "word problem",
+        )
+    )
+
+
+def is_foundational_chapter(chapter_name: str) -> bool:
+    """Return True if chapter is visual/foundational vocabulary (better for MCQ / short answer)."""
+    c = chapter_name.lower()
+    return any(k in c for k in ("spatial", "solid", "zero", "circle", "angle")) and not is_computational_chapter(c)
+
+
+def assign_blueprint_chapter_coverage(
+    blueprint: ExamBlueprint,
+    permitted_chapters: list[str],
+) -> tuple[ExamBlueprint, str]:
+    """
+    Distribute questions across the eligible chapters before generation.
+    - When question count N >= total chapters M: every chapter receives at least one question.
+      Allocates multi-step / operational chapters to Long Answer sections and foundational
+      identification chapters to Multiple Choice sections, preventing cognitive mismatches
+      and cross-section repetition of trivial concepts.
+    - When question count N < total chapters M: select N evenly distributed representative chapters
+      and explain the actual coverage.
+    """
+    if not permitted_chapters:
+        return blueprint, "No chapters available for allocation."
+
+    m = len(permitted_chapters)
+    n = blueprint.total_questions
+
+    # Chapter order index lookup
+    order_map = {ch: idx for idx, ch in enumerate(permitted_chapters)}
+
+    if n >= m:
+        # 1. Pool must contain all M permitted chapters at least once
+        pool = list(permitted_chapters)
+
+        # 2. Extra slots (N - M) are drawn from computational/operational chapters
+        # (NEVER from foundational visual vocabulary like Spatial Understanding or Zero)
+        comp_chapters = [ch for ch in permitted_chapters if is_computational_chapter(ch)]
+        extra_pool = comp_chapters if comp_chapters else permitted_chapters
+        for i in range(n - m):
+            pool.append(extra_pool[i % len(extra_pool)])
+
+        # 3. Categorize sections
+        la_secs = [s for s in blueprint.sections if s.question_type == QuestionType.LONG_ANSWER or s.section_marks >= s.num_questions * 3]
+        mcq_secs = [s for s in blueprint.sections if s.question_type == QuestionType.MULTIPLE_CHOICE]
+        sa_secs = [s for s in blueprint.sections if s not in la_secs and s not in mcq_secs]
+
+        remaining_pool = list(pool)
+        la_assigned = []
+        mcq_assigned = []
+        sa_assigned = []
+
+        total_la_needed = sum(s.num_questions for s in la_secs)
+        total_mcq_needed = sum(s.num_questions for s in mcq_secs)
+
+        # Long Answer prefers computational chapters (Addition, Subtraction, Multiplication, Fractions, etc.)
+        candidates_la = [ch for ch in remaining_pool if is_computational_chapter(ch)]
+        candidates_la.sort(key=lambda ch: order_map.get(ch, 99))
+        for ch in candidates_la:
+            if len(la_assigned) < total_la_needed:
+                la_assigned.append(ch)
+                remaining_pool.remove(ch)
+
+        # If more LA needed, fill from remaining (highest order index)
+        remaining_pool.sort(key=lambda ch: order_map.get(ch, 99), reverse=True)
+        while len(la_assigned) < total_la_needed and remaining_pool:
+            ch = remaining_pool.pop(0)
+            la_assigned.append(ch)
+
+        # MCQ prefers foundational and early chapters
+        candidates_mcq = [ch for ch in remaining_pool if is_foundational_chapter(ch)]
+        candidates_mcq.sort(key=lambda ch: order_map.get(ch, 99))
+        for ch in candidates_mcq:
+            if len(mcq_assigned) < total_mcq_needed:
+                mcq_assigned.append(ch)
+                remaining_pool.remove(ch)
+
+        # If more MCQ needed, fill from remaining (lowest order index)
+        remaining_pool.sort(key=lambda ch: order_map.get(ch, 99))
+        while len(mcq_assigned) < total_mcq_needed and remaining_pool:
+            ch = remaining_pool.pop(0)
+            mcq_assigned.append(ch)
+
+        # Short answer takes the rest
+        remaining_pool.sort(key=lambda ch: order_map.get(ch, 99))
+        sa_assigned = remaining_pool
+
+        # Now distribute into individual section blueprints preserving section ordering
+        for sec in blueprint.sections:
+            if sec in la_secs:
+                take = la_assigned[:sec.num_questions]
+                la_assigned = la_assigned[sec.num_questions:]
+            elif sec in mcq_secs:
+                take = mcq_assigned[:sec.num_questions]
+                mcq_assigned = mcq_assigned[sec.num_questions:]
+            else:
+                take = sa_assigned[:sec.num_questions]
+                sa_assigned = sa_assigned[sec.num_questions:]
+
+            take.sort(key=lambda ch: order_map.get(ch, 99))
+            sec.chapter_allocation = take
+            sec.topics = list(dict.fromkeys(take))
+
+        explanation = (
+            f"Comprehensive balanced coverage: All {m} eligible curriculum chapters "
+            f"are assessed across the {n} questions of the examination paper."
+        )
+        blueprint.allocated_chapters = list(permitted_chapters)
+
+    else:
+        # N < M: Balanced sampling of N representative chapters across the M chapters
+        if n == 1:
+            indices = [0]
+        else:
+            indices = [round(i * (m - 1) / (n - 1)) for i in range(n)]
+        chosen_chapters = [permitted_chapters[idx] for idx in indices]
+        blueprint.allocated_chapters = chosen_chapters
+
+        explanation = (
+            f"Balanced representative coverage: {n} chapters selected across the {m}-chapter "
+            f"syllabus ({', '.join(chosen_chapters)}) because requested question count ({n}) "
+            f"is smaller than available chapters ({m})."
+        )
+
+        cursor = 0
+        for sec in blueprint.sections:
+            sec_alloc = chosen_chapters[cursor : cursor + sec.num_questions]
+            sec.chapter_allocation = sec_alloc
+            sec.topics = list(dict.fromkeys(sec_alloc))
+            cursor += sec.num_questions
+
+    blueprint.coverage_explanation = explanation
+    return blueprint, explanation
 
 
 def compute_file_hash(path: Path) -> str:

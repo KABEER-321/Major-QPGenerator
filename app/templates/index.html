@@ -1131,6 +1131,425 @@
         gap: 8px;
       }
     }
+
+    /* Auth & User Management Styles */
+    .user-profile-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 4px 10px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-sm);
+    }
+    .user-avatar {
+      width: 22px;
+      height: 22px;
+      background: var(--accent-primary);
+      color: #ffffff;
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .user-info-text {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.1;
+      text-align: left;
+    }
+    .user-name-display {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .user-role-tag {
+      font-size: 10px;
+      color: var(--text-muted);
+      text-transform: capitalize;
+    }
+    .btn-logout {
+      color: #991b1b;
+      border-color: rgba(239, 68, 68, 0.25);
+    }
+    .btn-logout:hover {
+      background: #fef2f2;
+      border-color: #fca5a5;
+      color: #7f1d1d;
+    }
+    .btn-admin-manage {
+      background: #f0fdf4;
+      color: #166534;
+      border-color: #bbf7d0;
+    }
+    .btn-admin-manage:hover {
+      background: #dcfce7;
+      border-color: #86efac;
+    }
+
+    /* Professional Teacher & Staff Management Modal */
+    .admin-modal-card {
+      background: #ffffff;
+      border-radius: var(--radius-lg);
+      box-shadow: 0 20px 25px -5px rgba(15, 23, 42, 0.16), 0 8px 10px -6px rgba(15, 23, 42, 0.1);
+      width: 92%;
+      max-width: 780px;
+      max-height: 88vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border: 1px solid var(--border-medium);
+      animation: modalFadeIn 0.15s ease-out;
+    }
+
+    @keyframes modalFadeIn {
+      from { opacity: 0; transform: scale(0.985); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    .admin-modal-header {
+      padding: 16px 22px;
+      background: #ffffff;
+      border-bottom: 1px solid var(--border-light);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .admin-modal-title-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .admin-modal-icon-badge {
+      width: 36px;
+      height: 36px;
+      border-radius: var(--radius-sm);
+      background: #eff6ff;
+      color: var(--accent-primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      border: 1px solid #bfdbfe;
+    }
+
+    .admin-modal-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+      margin: 0;
+    }
+
+    .admin-modal-subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .admin-modal-body {
+      padding: 22px;
+      overflow-y: auto;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      background: #fbfcfe;
+    }
+
+    /* Provision Teacher Form Box */
+    .admin-provision-card {
+      background: #ffffff;
+      border: 1px solid var(--border-medium);
+      border-radius: var(--radius-md);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+      padding: 18px 20px;
+    }
+
+    .admin-section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    .admin-section-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .admin-section-badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      background: #eff6ff;
+      color: #1e40af;
+      border: 1px solid #bfdbfe;
+    }
+
+    .admin-form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 16px;
+      margin-bottom: 16px;
+    }
+
+    @media (max-width: 640px) {
+      .admin-form-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+    }
+
+    .admin-form-field {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .admin-form-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    .admin-form-input {
+      width: 100%;
+      height: 38px;
+      padding: 0 12px;
+      font-family: inherit;
+      font-size: 13px;
+      color: var(--text-primary);
+      background: #ffffff;
+      border: 1px solid var(--border-medium);
+      border-radius: var(--radius-sm);
+      outline: none;
+      transition: all 0.15s ease;
+      box-sizing: border-box;
+    }
+
+    .admin-form-input:focus {
+      border-color: var(--accent-primary);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+    }
+
+    .admin-form-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border-light);
+    }
+
+    @media (max-width: 640px) {
+      .admin-form-actions {
+        flex-direction: column;
+        align-items: stretch;
+      }
+    }
+
+    .admin-form-note {
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    .btn-create-teacher {
+      height: 38px;
+      padding: 0 18px;
+      background: var(--accent-primary);
+      color: #ffffff;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+      box-shadow: 0 1px 2px rgba(37, 99, 235, 0.2);
+      flex-shrink: 0;
+    }
+
+    .btn-create-teacher:hover {
+      background: #1d4ed8;
+    }
+
+    .btn-create-teacher:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    /* Accounts List Card */
+    .admin-accounts-card {
+      background: #ffffff;
+      border: 1px solid var(--border-medium);
+      border-radius: var(--radius-md);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+      padding: 18px 20px;
+    }
+
+    .admin-table-container {
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-sm);
+      overflow-x: auto;
+      background: #ffffff;
+    }
+
+    .admin-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 12px;
+      min-width: 600px;
+    }
+
+    .admin-table th {
+      background: #f8fafc;
+      padding: 10px 14px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      border-bottom: 1px solid var(--border-medium);
+      text-transform: uppercase;
+      font-size: 10px;
+      letter-spacing: 0.04em;
+    }
+
+    .admin-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border-light);
+      color: var(--text-primary);
+      vertical-align: middle;
+    }
+
+    .admin-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .admin-table tr:hover td {
+      background: #fbfcfe;
+    }
+
+    /* Role Badges */
+    .badge-admin-role {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .badge-teacher-role {
+      background: #f8fafc;
+      color: #334155;
+      border: 1px solid #cbd5e1;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* Status Badges */
+    .badge-status-active {
+      background: #f0fdf4;
+      color: #15803d;
+      border: 1px solid #bbf7d0;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 9999px;
+      display: inline-block;
+    }
+
+    .badge-status-inactive {
+      background: #fef2f2;
+      color: #b91c1c;
+      border: 1px solid #fecaca;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 9999px;
+      display: inline-block;
+    }
+
+    /* Action Buttons */
+    .btn-action-outline {
+      background: #ffffff;
+      border: 1px solid var(--border-medium);
+      color: var(--text-secondary);
+      border-radius: 4px;
+      padding: 4px 9px;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn-action-outline:hover {
+      background: var(--bg-subtle);
+      color: var(--text-primary);
+      border-color: #94a3b8;
+    }
+
+    .btn-action-danger {
+      background: #ffffff;
+      border: 1px solid #fca5a5;
+      color: #dc2626;
+      border-radius: 4px;
+      padding: 4px 9px;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn-action-danger:hover {
+      background: #fef2f2;
+      border-color: #ef4444;
+      color: #991b1b;
+    }
+
+    .btn-action-success {
+      background: #ffffff;
+      border: 1px solid #86efac;
+      color: #16a34a;
+      border-radius: 4px;
+      padding: 4px 9px;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn-action-success:hover {
+      background: #f0fdf4;
+      border-color: #22c55e;
+      color: #15803d;
+    }
   </style>
 </head>
 <body>
@@ -1153,6 +1572,17 @@
         <button type="button" class="btn-header" onclick="toggleSavedPapersDrawer()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
           <span id="saved-papers-btn-text">Saved Papers</span>
+        </button>
+        <div class="user-profile-badge" id="user-profile-badge">
+          <div class="user-avatar" id="user-avatar-initial">T</div>
+          <div class="user-info-text">
+            <span class="user-name-display" id="user-name-display">Teacher</span>
+            <span class="user-role-tag" id="user-role-display">Staff</span>
+          </div>
+        </div>
+        <button type="button" class="btn-header btn-logout" onclick="handleLogout()" title="Sign Out">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+          Sign Out
         </button>
         <a href="/docs" target="_blank" class="btn-header">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
@@ -1447,7 +1877,7 @@
           hintEl.style.background = 'var(--accent-subtle)';
         }
       } else if (examType === 'midterm') {
-        hintEl.innerHTML = `<strong>Mid-Semester Assessment:</strong> Questions will assess the <strong>first half</strong> of the Class ${gradeNum} syllabus (${midtermChapters.length} of ${allChapters.length} chapters):<br><span style="color:var(--text-muted); font-size:11px;">${escapeHtml(midtermChapters.join(', '))}</span>`;
+        hintEl.innerHTML = `<strong>Mid-Semester Assessment:</strong> Questions will assess the <strong>first half</strong> of the Class ${gradeNum} syllabus (first ${midtermChapters.length} chapters out of ${allChapters.length} total — Lessons 1 to ${midtermChapters.length}):<br><span style="color:var(--text-muted); font-size:11px;">${escapeHtml(midtermChapters.join(', '))}</span>`;
         hintEl.style.color = 'var(--warning-text)';
         hintEl.style.borderColor = 'var(--warning-border)';
         hintEl.style.background = 'var(--warning-bg)';
@@ -1856,7 +2286,46 @@
       return block;
     }
 
+    // -------------------------------------------------------------------------
+    // Authentication & Administrator Controls
+    // -------------------------------------------------------------------------
+    let currentUserProfile = null;
+
+    async function checkAuthAndLoadProfile() {
+      try {
+        const res = await fetch('/auth/me');
+        if (!res.ok) {
+          window.location.href = '/login';
+          return;
+        }
+        currentUserProfile = await res.json();
+        // Administrators are restricted from the Teacher Portal and redirected to Access Management
+        if (currentUserProfile.role === 'admin') {
+          window.location.href = '/admin';
+          return;
+        }
+        const nameEl = document.getElementById('user-name-display');
+        const roleEl = document.getElementById('user-role-display');
+        const avatarEl = document.getElementById('user-avatar-initial');
+
+        if (nameEl) nameEl.textContent = currentUserProfile.full_name || currentUserProfile.username;
+        if (roleEl) roleEl.textContent = 'Teacher';
+        if (avatarEl) avatarEl.textContent = (currentUserProfile.full_name || currentUserProfile.username || 'T').charAt(0).toUpperCase();
+      } catch (err) {
+        window.location.href = '/login';
+      }
+    }
+
+    async function handleLogout() {
+      try {
+        await fetch('/auth/logout', { method: 'POST' });
+      } finally {
+        window.location.href = '/login';
+      }
+    }
+
     // Initialize application on page load
+    checkAuthAndLoadProfile();
     loadCurriculumStatus();
     loadPapers();
   </script>

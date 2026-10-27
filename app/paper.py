@@ -131,6 +131,19 @@ def assemble_paper(
         if built_sections:
             sections = built_sections
 
+    distinct_covered = []
+    for q in questions:
+        if q.chapter and q.chapter not in distinct_covered:
+            distinct_covered.append(q.chapter)
+
+    coverage_explanation = None
+    if hasattr(request, "get_or_create_blueprint"):
+        try:
+            bp_obj = request.get_or_create_blueprint()
+            coverage_explanation = getattr(bp_obj, "coverage_explanation", None)
+        except Exception:
+            pass
+
     paper = Paper(
         paper_id=paper_id,
         title=title,
@@ -143,6 +156,8 @@ def assemble_paper(
         syllabus_scope=request.syllabus_scope,
         permitted_units=getattr(request, "permitted_units", None),
         forbidden_units=getattr(request, "forbidden_units", None),
+        covered_chapters=distinct_covered,
+        coverage_explanation=coverage_explanation,
         difficulty=request.difficulty,
         questions=questions,
         num_questions=request.num_questions,

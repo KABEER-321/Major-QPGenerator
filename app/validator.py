@@ -12,7 +12,14 @@ import re
 from typing import Optional
 
 from app.duplicates import is_duplicate
-from app.schemas import MathCheckStatus, Paper, Question, QuestionType
+from app.schemas import (
+    ExamType,
+    MathCheckStatus,
+    Paper,
+    Question,
+    QuestionType,
+    parse_grade_number,
+)
 
 
 # Patterns indicating references to non-existent visual diagrams/figures/tables
@@ -21,6 +28,20 @@ VISUAL_REF_PATTERN = re.compile(
     r"\b(?:as\s+shown\s+in\s+(?:the\s+)?(?:figure|diagram|picture|table))\b|"
     r"\b(?:look\s+at\s+the\s+(?:figure|diagram|picture|table))\b|"
     r"\b(?:from\s+the\s+(?:given\s+)?(?:figure|diagram|picture|table))\b",
+    re.IGNORECASE,
+)
+
+# Patterns indicating textbook meta-references that should never appear in student test papers
+TEXTBOOK_META_PATTERN = re.compile(
+    r"\b(?:as\s+discussed\s+in|according\s+to\s+lesson|as\s+introduced\s+in|discussed\s+in\s+lesson|"
+    r"in\s+lesson\s+\d+|in\s+chapter\s+\d+|from\s+lesson\s+\d+|from\s+chapter\s+\d+|"
+    r"as\s+studied\s+in\s+class|as\s+given\s+in\s+lesson|according\s+to\s+chapter)\b",
+    re.IGNORECASE,
+)
+
+# Patterns indicating AI drafting notes or generated commentary
+AI_DRAFTING_PATTERN = re.compile(
+    r"\b(?:note:|drafting\s+note|alternative\s+instruction|option\s+1:|option\s+2:|here\s+is\s+a\s+question|please\s+note)\b",
     re.IGNORECASE,
 )
 
@@ -78,18 +99,34 @@ def check_question_clarity(
             f"Question references missing visual artifact ('{m.group(0)}'). Question must be fully self-contained.",
         )
 
-    # 2. Reject dangling prompts
+    # 2. Reject textbook meta-references
+    m_meta = TEXTBOOK_META_PATTERN.search(clean)
+    if m_meta:
+        return (
+            False,
+            f"Question contains textbook meta-reference ('{m_meta.group(0)}'). Examination questions must be phrased directly without referencing lesson numbers or textbook chapters.",
+        )
+
+    # 3. Reject AI drafting commentary
+    m_ai = AI_DRAFTING_PATTERN.search(clean)
+    if m_ai:
+        return (
+            False,
+            f"Question contains AI drafting notes or generated commentary ('{m_ai.group(0)}').",
+        )
+
+    # 4. Reject dangling prompts
     if clean.endswith((":", "following", "following:")) and (not options or len(options) == 0):
         return False, "Question text ends with incomplete prompt ('following:') without options or data."
 
-    # 3. Reject comparison questions without operands or options
+    # 5. Reject comparison questions without operands or options
     if (
         re.search(r"^(?:which\s+is\s+(?:greater|smaller|larger|heavier|longer|more|less))\s*\??$", clean, re.IGNORECASE)
         and not options
     ):
         return False, "Incomplete comparison question without values or options."
 
-    # 4. Reject computation prompts without numbers
+    # 6. Reject computation prompts without numbers
     if re.search(r"\b(?:find\s+the\s+sum|add|subtract|multiply|divide|product\s+of)\b", clean, re.IGNORECASE):
         nums = re.findall(r"\b\d+\b", clean)
         # Check if numbers are defined in question text or options
@@ -121,12 +158,10 @@ def check_question_coherence(text: str) -> tuple[bool, Optional[str]]:
 def check_grade_age_appropriateness(q: Question) -> tuple[bool, Optional[str]]:
     """
     Validate that question language, concepts, and format match the student's age/grade.
-    Specifically protects Class 1 (age 6-7) from:
-    - English comprehension / vocabulary / definition questions
-    - Adult commercial contexts (banking, factories, payroll, demographics)
-    - Excessive wordiness or abstract essays in short/long answer
+    Enforces that questions across all grades test mathematics rather than English vocabulary
+    or reading comprehension, and sets age-appropriate bounds for Classes 1 to 5.
     """
-    g_str = str(q.grade or "")
+    g_str = str(getattr(q, "curriculum_grade", None) or q.grade or "")
     m = re.search(r"\b([1-5])\b", g_str)
     grade_num = int(m.group(1)) if m else None
 
@@ -137,25 +172,34 @@ def check_grade_age_appropriateness(q: Question) -> tuple[bool, Optional[str]]:
             grade_num = int(m2.group(1))
 
     text_lower = q.question_text.lower()
+    words = text_lower.split()
 
-    if grade_num == 1:
-        # 1. Prohibit definition / essay / English grammar questions
-        definitional_patterns = [
-            (r"\bwhat\s+(?:does|is)\b.*\b(?:mean|meaning|represent|stand for)\b", "definition of mathematical symbol/term"),
-            (r"\b(?:what\s+does\b.*\b(?:symbol|sign|term|word))\b", "definition of mathematical symbol/term"),
-            (r"\b(?:define|give\s+the\s+definition\s+of)\b", "definition prompt"),
-            (r"\b(?:state\s+(?:the\s+)?vocabulary|terms?\s+used\s+in)\b", "vocabulary recall"),
-            (r"\b(?:explain\s+(?:in\s+words|why|what\s+term|how))\b", "written explanation"),
-            (r"\b(?:in\s+your\s+own\s+words)\b", "essay prompt"),
-            (r"\b(?:write\s+a\s+sentence\s+explaining)\b", "written sentence explanation"),
-            (r"\b(?:describe\s+(?:the\s+meaning|the\s+rule))\b", "rule description"),
-            (r"\b(?:english\s+word|vocabulary\s+term)\b", "English vocabulary test"),
-        ]
-        for pat, desc in definitional_patterns:
-            if re.search(pat, text_lower):
+    # 1. Universal Prohibition: NEVER test English vocabulary, definition writing, or essay explanations
+    definitional_patterns = [
+        (r"\bwhat\s+(?:does|is)\b.*\b(?:mean|meaning|represent|stand for)\b", "definition of mathematical symbol/term"),
+        (r"\b(?:what\s+does\b.*\b(?:symbol|sign|term|word))\b", "definition of mathematical symbol/term"),
+        (r"\b(?:define|give\s+the\s+definition\s+of)\b", "definition prompt"),
+        (r"\b(?:state\s+(?:the\s+)?vocabulary|terms?\s+used\s+in)\b", "vocabulary recall"),
+        (r"\bstate\s+(?:the\s+)?(?:spatial\s+relationship\s+)?term\s+used\b", "vocabulary recall"),
+        (r"\b(?:explain\s+(?:in\s+words|why|what\s+term|how))\b", "written explanation"),
+        (r"\b(?:in\s+your\s+own\s+words)\b", "essay prompt"),
+        (r"\b(?:write\s+a\s+sentence\s+explaining)\b", "written sentence explanation"),
+        (r"\b(?:describe\s+(?:the\s+meaning|the\s+rule))\b", "rule description"),
+        (r"\b(?:english\s+word|vocabulary\s+term)\b", "English vocabulary test"),
+        (r"\bwhich\s+spatial\s+vocabulary\s+term\b", "spatial vocabulary recall"),
+        (r"\bwhat\s+spatial\s+vocabulary\s+term\b", "spatial vocabulary recall"),
+        (r"\bstate\s+the\s+spatial\s+relationship\s+term\b", "spatial vocabulary recall"),
+        (r"\bspatial\s+understanding\s+vocabulary\b", "spatial vocabulary recall"),
+    ]
+    for pat, desc in definitional_patterns:
+        if re.search(pat, text_lower):
+            if grade_num == 1:
                 return False, f"Class 1 questions must test direct math skills, not {desc} (matched '{pat}')."
+            return False, f"Mathematics questions must test mathematical skills, not {desc} (matched '{pat}')."
 
-        # 2. Prohibit adult commercial / manufacturing / demographic contexts
+    # 2. Grade-Specific Boundaries
+    if grade_num == 1:
+        # Prohibit adult commercial contexts
         adult_patterns = [
             (r"\b(?:bank|deposit|deposited|withdrawal|account\s+balance|interest)\b", "banking/financial"),
             (r"\b(?:factory|manufacture|manufactured|warehouse|production)\b", "factory manufacturing"),
@@ -166,25 +210,61 @@ def check_grade_age_appropriateness(q: Question) -> tuple[bool, Optional[str]]:
             if re.search(pat, text_lower):
                 return False, f"Class 1 questions cannot use adult {desc} contexts (matched '{pat}')."
 
-        # 3. Word count check for Class 1 (excluding sub-part sums)
-        words = text_lower.split()
-        if q.question_type == QuestionType.MULTIPLE_CHOICE and len(words) > 35:
-            return False, f"Class 1 MCQ is too wordy for 6-year-old readers ({len(words)} words; max 35)."
-        if q.question_type == QuestionType.SHORT_ANSWER and len(words) > 40:
-            return False, f"Class 1 Short Answer is too wordy ({len(words)} words; max 40)."
+        # Word count limits for 6-year-old readers
+        if q.question_type == QuestionType.MULTIPLE_CHOICE and len(words) > 28:
+            return False, f"Class 1 MCQ is too wordy for 6-year-old readers ({len(words)} words; max 28)."
+        if q.question_type == QuestionType.SHORT_ANSWER and len(words) > 35:
+            return False, f"Class 1 Short Answer is too wordy ({len(words)} words; max 35)."
 
-        # 4. Long Answer must have sub-parts or clear arithmetic sums, not a giant word essay
+        # Long Answer must have sub-parts or clear arithmetic sums, not a giant word essay
         if q.question_type == QuestionType.LONG_ANSWER:
             has_subparts = bool(re.search(r"\([a-d]\)|\(i\)|\b[a-d]\)|\b1\)\s*.*2\)", q.question_text))
             has_math_ops = bool(re.search(r"[+\-=__]{2,}|[+−×÷=]", q.question_text))
-            if not has_subparts and not has_math_ops and len(words) > 45:
+            if not has_subparts and not has_math_ops and len(words) > 40:
                 return False, "Class 1 Long Answer must consist of structured simple sub-problems or arithmetic sums, not long word essays."
 
+        # Numbers in direct Class 1 arithmetic operations should not exceed 20
+        ops_match = re.findall(r"\b(\d+)\s*[+\-−]\s*(\d+)\b", q.question_text)
+        for n1, n2 in ops_match:
+            if int(n1) > 20 or int(n2) > 20:
+                return False, f"Class 1 arithmetic operations are limited to numbers up to 20 (found {n1}, {n2})."
+
     elif grade_num == 2:
-        # Avoid heavy adult commercial contexts for Class 2
-        for pat in [r"\b(?:bank|deposit|deposited|withdrawal|interest|factory|manufactured)\b"]:
+        for pat in [r"\b(?:bank|deposit|deposited|withdrawal|interest|factory|manufactured|salary|warehouse)\b"]:
             if re.search(pat, text_lower):
                 return False, "Class 2 questions should avoid adult banking/factory contexts."
+
+        if q.question_type == QuestionType.MULTIPLE_CHOICE and len(words) > 35:
+            return False, f"Class 2 MCQ is too wordy ({len(words)} words; max 35)."
+        if q.question_type == QuestionType.SHORT_ANSWER and len(words) > 40:
+            return False, f"Class 2 Short Answer is too wordy ({len(words)} words; max 40)."
+        if q.question_type == QuestionType.LONG_ANSWER:
+            has_subparts = bool(re.search(r"\([a-d]\)|\(i\)|\b[a-d]\)|\b1\)\s*.*2\)", q.question_text))
+            has_math_ops = bool(re.search(r"[+\-=__]{2,}|[+−×÷=]", q.question_text))
+            if not has_subparts and not has_math_ops and len(words) > 50:
+                return False, "Class 2 Long Answer must have structured subparts or clear calculations."
+
+    elif grade_num == 3:
+        if q.question_type == QuestionType.MULTIPLE_CHOICE and len(words) > 40:
+            return False, f"Class 3 MCQ is too wordy ({len(words)} words; max 40)."
+        if q.question_type == QuestionType.SHORT_ANSWER and len(words) > 50:
+            return False, f"Class 3 Short Answer is too wordy ({len(words)} words; max 50)."
+
+    elif grade_num == 4:
+        if q.question_type == QuestionType.MULTIPLE_CHOICE and len(words) > 50:
+            return False, f"Class 4 MCQ is too wordy ({len(words)} words; max 50)."
+        if q.question_type == QuestionType.SHORT_ANSWER and len(words) > 60:
+            return False, f"Class 4 Short Answer is too wordy ({len(words)} words; max 60)."
+
+    elif grade_num == 5:
+        if q.question_type == QuestionType.MULTIPLE_CHOICE and len(words) > 55:
+            return False, f"Class 5 MCQ is too wordy ({len(words)} words; max 55)."
+        if q.question_type == QuestionType.SHORT_ANSWER and len(words) > 65:
+            return False, f"Class 5 Short Answer is too wordy ({len(words)} words; max 65)."
+
+    # Maximum prompt length across all classes
+    if len(words) > 85:
+        return False, f"Question is excessively verbose ({len(words)} words; max 85). Avoid unnecessary story details."
 
     return True, None
 
@@ -192,7 +272,7 @@ def check_grade_age_appropriateness(q: Question) -> tuple[bool, Optional[str]]:
 def validate_question_quality(q: Question) -> tuple[bool, Optional[str]]:
     """
     Perform full quality validation on an individual question.
-    Checks: clarity, coherence, MCQ completeness, SymPy mathematical check, and age-appropriateness.
+    Checks: clarity, coherence, MCQ completeness, SymPy mathematical check, mark allocation, and age-appropriateness.
     """
     # 1. Clarity check
     ok, err = check_question_clarity(q.question_text, q.question_type, q.options)
@@ -217,14 +297,22 @@ def validate_question_quality(q: Question) -> tuple[bool, Optional[str]]:
         if len(set(norm_opts)) < len(norm_opts):
             return False, "Multiple choice question contains duplicate options."
 
-    # 4. Mathematical verification check (SymPy)
+    # 4. Long Answer mark & structure check: high mark questions (>= 3 marks) must have structured work
+    if q.marks >= 3 and q.question_type == QuestionType.LONG_ANSWER:
+        # Check that high mark questions are not trivial 1-step arithmetic facts
+        nums = re.findall(r"\b\d+\b", q.question_text)
+        has_subparts = bool(re.search(r"\([a-d]\)|\(i\)|\b[a-d]\)|\b1\)\s*.*2\)", q.question_text))
+        if len(nums) <= 2 and not has_subparts and len(q.question_text.split()) < 15:
+            return False, f"Long answer question with {q.marks} marks lacks sufficient problem depth or subparts."
+
+    # 5. Mathematical verification check (SymPy)
     if q.math_verification and q.math_verification.status == MathCheckStatus.DISCREPANCY:
         return (
             False,
             f"Mathematical discrepancy detected: {q.math_verification.details or 'Calculation check failed'}",
         )
 
-    # 5. Grade / age appropriateness check
+    # 6. Grade / age appropriateness check
     ok, err = check_grade_age_appropriateness(q)
     if not ok:
         return False, err
@@ -293,5 +381,46 @@ def validate_full_paper(paper: Paper) -> tuple[bool, list[str]]:
             errors.append(
                 f"Sections marks sum ({sec_m_count}) does not match paper total marks ({paper.total_marks})."
             )
+
+    # 5. Examination Scope & Syllabus Integrity
+    from app.generator import is_question_in_forbidden_units
+
+    # Verify allowed chapter association
+    if paper.permitted_units:
+        for idx, q in enumerate(paper.questions, 1):
+            if not q.chapter or q.chapter in ("Mathematics Curriculum", "General Math", "Mathematics"):
+                errors.append(f"Question {idx} lacks specific chapter association.")
+            else:
+                matches_permitted = any(
+                    pu.lower() in q.chapter.lower() or q.chapter.lower() in pu.lower()
+                    for pu in paper.permitted_units
+                )
+                if not matches_permitted:
+                    errors.append(
+                        f"Question {idx} chapter '{q.chapter}' does not belong to permitted chapters: {paper.permitted_units}"
+                    )
+
+    # Verify no questions use forbidden units
+    if paper.forbidden_units:
+        for idx, q in enumerate(paper.questions, 1):
+            is_forb, forb_reason = is_question_in_forbidden_units(q, paper.forbidden_units, paper.permitted_units)
+            if is_forb:
+                errors.append(f"Question {idx} uses concepts from forbidden chapter: {forb_reason}")
+
+    # Verify examination-type structural rules
+    if paper.exam_type == ExamType.PREREQUISITE:
+        acad_num = parse_grade_number(paper.academic_grade or paper.grade)
+        curr_num = parse_grade_number(paper.curriculum_grade or "")
+        if acad_num is not None and curr_num is not None:
+            if curr_num != acad_num - 1:
+                errors.append(
+                    f"Prerequisite examination curriculum grade ({curr_num}) must be exactly 1 grade below academic grade ({acad_num})."
+                )
+    elif paper.exam_type == ExamType.MIDTERM:
+        if paper.forbidden_units is not None and len(paper.forbidden_units) == 0 and paper.permitted_units and len(paper.permitted_units) > 1:
+            errors.append("Mid-Semester examination must have excluded second-half chapters.")
+    elif paper.exam_type == ExamType.FINAL:
+        if paper.forbidden_units:
+            errors.append("Final examination permits content from the full textbook and cannot forbid chapters.")
 
     return len(errors) == 0, errors

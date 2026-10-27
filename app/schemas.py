@@ -60,8 +60,8 @@ def get_previous_class(grade_str: str) -> str:
         )
     if grade_num <= 1:
         raise ValueError(
-            f"Cannot determine prerequisite class for Class {grade_num}. "
-            "Prerequisite assessments require a preceding academic class."
+            f"Prerequisite Examination is not available for Class {grade_num} "
+            "unless a previous-level curriculum textbook is provided."
         )
     return str(grade_num - 1)
 
@@ -322,6 +322,7 @@ class SectionBlueprint(BaseModel):
     marks_distribution: Optional[list[int]] = Field(default=None, description="Explicit marks per question")
     difficulty: Optional[Difficulty] = Field(default=None, description="Difficulty level for this section")
     topics: Optional[list[str]] = Field(default=None, description="Specific topics or subtopics for this section")
+    chapter_allocation: Optional[list[str]] = Field(default=None, description="Assigned chapter for each question slot in this section")
     instructions: Optional[str] = Field(default=None, description="Instructions for students in this section")
 
     @model_validator(mode="after")
@@ -389,6 +390,14 @@ class ExamBlueprint(BaseModel):
     difficulty_distribution: Optional[dict[Difficulty, int]] = Field(
         default=None,
         description="Optional breakdown of question counts by difficulty",
+    )
+    allocated_chapters: Optional[list[str]] = Field(
+        default=None,
+        description="List of distinct chapters allocated in this blueprint",
+    )
+    coverage_explanation: Optional[str] = Field(
+        default=None,
+        description="Explanation of syllabus chapter coverage across questions",
     )
 
     @model_validator(mode="after")
@@ -887,6 +896,14 @@ class Paper(BaseModel):
     forbidden_units: Optional[list[str]] = Field(
         default=None,
         description="Forbidden chapter/unit names excluded from generation",
+    )
+    covered_chapters: Optional[list[str]] = Field(
+        default=None,
+        description="Distinct chapters covered in this paper",
+    )
+    coverage_explanation: Optional[str] = Field(
+        default=None,
+        description="Explanation of syllabus chapter coverage",
     )
     difficulty: Difficulty
     created_at: str = Field(

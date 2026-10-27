@@ -146,8 +146,11 @@ def test_class_1_pedagogical_prompt_present():
     assert "MATHEMATICAL SKILLS ONLY - NOT ENGLISH COMPREHENSION" in prompt_c1
     assert "ABSOLUTE PROHIBITION OF DEFINITIONS & ESSAY QUESTIONS" in prompt_c1
 
+    prompt_other = get_grade_pedagogical_prompt("Class 9")
+    assert prompt_other == ""
+
     prompt_c5 = get_grade_pedagogical_prompt("Class 5")
-    assert prompt_c5 == ""
+    assert "CLASS 5" in prompt_c5
 
 
 def test_source_reference_chunk_index_and_chapter_matching():

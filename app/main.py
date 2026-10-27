@@ -1,20 +1,42 @@
 # app/main.py
 # FastAPI application entry point with all API routes.
-# This is the file you run with: uvicorn app.main:app --reload
-#
-# WARNING: This prototype has NO user authentication.
-# Do NOT deploy it as a public production service.
-# It is designed for local development or a trusted private environment.
+# Protected with enterprise authentication, session tokens, and admin user controls.
 
 import logging
 import uuid
 from typing import Optional
 from pathlib import Path
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from fastapi.responses import Response, HTMLResponse
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Response, status, Depends
+from fastapi.responses import Response, HTMLResponse, RedirectResponse
 
 from app.config import settings
+from app.auth import (
+    User,
+    UserRole,
+    LoginRequest,
+    UserCreateRequest,
+    UserStatusUpdateRequest,
+    UserResetPasswordRequest,
+    COOKIE_NAME,
+    init_auth_db,
+    get_db,
+    check_rate_limit,
+    record_login_attempt,
+    verify_password,
+    create_user_session,
+    delete_session,
+    extract_session_id,
+    get_user_for_session,
+    get_current_user,
+    require_admin,
+    require_teacher,
+    list_all_users,
+    create_teacher_account,
+    update_user_status,
+    reset_user_password,
+    AuthenticationRedirectException,
+)
 from app.schemas import (
     DocumentInfo,
     DocumentRecord,
@@ -33,6 +55,7 @@ from app.schemas import (
     format_grade_display,
     extract_syllabus_units,
     determine_midterm_scope,
+    determine_second_half_scope,
 )
 from app.documents import (
     validate_file_extension,
@@ -69,6 +92,10 @@ from app.curriculum import (
     get_second_half_chapters_for_class,
     ensure_all_curriculum_textbooks_indexed,
     get_curriculum_status,
+    resolve_authoritative_syllabus_scope,
+    assign_blueprint_chapter_coverage,
+    order_chapters_by_textbook,
+    SyllabusScopeInfo,
 )
 
 # Set up logging
@@ -76,6 +103,8 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 INDEX_HTML_PATH = Path(__file__).resolve().parent / "templates" / "index.html"
+LOGIN_HTML_PATH = Path(__file__).resolve().parent / "templates" / "login.html"
+ADMIN_HTML_PATH = Path(__file__).resolve().parent / "templates" / "admin.html"
 
 # ---------------------------------------------------------------------------
 # FastAPI app
@@ -92,9 +121,17 @@ app = FastAPI(
 )
 
 
+@app.exception_handler(AuthenticationRedirectException)
+async def auth_redirect_handler(request: Request, exc: AuthenticationRedirectException):
+    """Redirect unauthenticated browser requests directly to the login portal."""
+    return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+
 @app.on_event("startup")
 def on_startup():
-    """Ensure curriculum textbooks are indexed on application start."""
+    """Ensure authentication database and curriculum textbooks are indexed on application start."""
+    logger.info("Initializing authentication database...")
+    init_auth_db()
     logger.info("Checking QPGen permanent curriculum textbooks...")
     try:
         ensure_all_curriculum_textbooks_indexed()
@@ -103,11 +140,175 @@ def on_startup():
 
 
 # ---------------------------------------------------------------------------
+# Authentication Endpoints (Login, Logout, Profile, Admin User Controls)
+# ---------------------------------------------------------------------------
+
+@app.get("/login", response_class=HTMLResponse, tags=["Authentication"])
+def login_page(request: Request):
+    """Serve the login page or redirect to dashboard if already authenticated."""
+    session_id = extract_session_id(request)
+    if session_id:
+        with get_db() as conn:
+            user = get_user_for_session(conn, session_id)
+            if user and user.is_active:
+                if user.role == UserRole.ADMIN:
+                    return RedirectResponse(url="/admin", status_code=status.HTTP_303_SEE_OTHER)
+                return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    if LOGIN_HTML_PATH.exists():
+        return HTMLResponse(content=LOGIN_HTML_PATH.read_text(encoding="utf-8"))
+    return HTMLResponse(content="<h2>QPGen Login</h2><p>Login template missing.</p>")
+
+
+@app.post("/auth/login", tags=["Authentication"])
+def auth_login(req: LoginRequest, request: Request, response: Response):
+    """
+    Authenticate teacher or administrator credentials.
+    Rate-limited to protect against brute-force attacks.
+    Sets secure HttpOnly session cookie on success.
+    """
+    ip_addr = request.client.host if request.client else "unknown"
+    ident = req.identifier.strip().lower()
+
+    with get_db() as conn:
+        # Check rate limiting (5 failed attempts per 15 mins)
+        if check_rate_limit(conn, ip_addr, ident):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many failed login attempts. Please wait 15 minutes before trying again."
+            )
+
+        cur = conn.execute(
+            """
+            SELECT id, username, email, password_hash, full_name, role, is_active, created_at, last_login_at
+            FROM users
+            WHERE username = ? OR email = ?;
+            """,
+            (ident, ident)
+        )
+        row = cur.fetchone()
+
+        if not row or not verify_password(req.password, row["password_hash"]):
+            record_login_attempt(conn, ip_addr, ident, success=False)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid username/email or password.",
+            )
+
+        if not row["is_active"]:
+            record_login_attempt(conn, ip_addr, ident, success=False)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Your account has been deactivated. Please contact your administrator.",
+            )
+
+        record_login_attempt(conn, ip_addr, ident, success=True)
+        user_agent = request.headers.get("user-agent", "")
+        session_id = create_user_session(conn, row["id"], ip_addr, user_agent)
+
+        # Set secure HttpOnly session cookie
+        response.set_cookie(
+            key=COOKIE_NAME,
+            value=session_id,
+            max_age=settings.SESSION_MAX_AGE_SECONDS,
+            httponly=True,
+            samesite="lax",
+            path="/",
+        )
+
+        user_profile = User(
+            id=row["id"],
+            username=row["username"],
+            email=row["email"],
+            full_name=row["full_name"],
+            role=UserRole(row["role"]),
+            is_active=bool(row["is_active"]),
+            created_at=row["created_at"],
+            last_login_at=row["last_login_at"],
+        )
+
+        return {
+            "status": "ok",
+            "message": "Login successful",
+            "session_id": session_id,
+            "user": user_profile,
+        }
+
+
+@app.post("/auth/logout", tags=["Authentication"])
+def auth_logout(request: Request, response: Response):
+    """Log out user, invalidate session in database, and clear cookie."""
+    session_id = extract_session_id(request)
+    if session_id:
+        with get_db() as conn:
+            delete_session(conn, session_id)
+    response.delete_cookie(key=COOKIE_NAME, path="/")
+    return {"status": "ok", "message": "Logged out successfully."}
+
+
+@app.get("/auth/me", response_model=User, tags=["Authentication"])
+def auth_me(current_user: User = Depends(get_current_user)):
+    """Return currently authenticated user profile."""
+    return current_user
+
+
+# ---------------------------------------------------------------------------
+# Administrator User Management (Admin Only — No Public Registration)
+# ---------------------------------------------------------------------------
+
+@app.get("/admin", response_class=HTMLResponse, tags=["Admin"])
+def admin_dashboard(admin: User = Depends(require_admin)):
+    """Serve the dedicated Access Management workspace for administrators."""
+    if ADMIN_HTML_PATH.exists():
+        return HTMLResponse(content=ADMIN_HTML_PATH.read_text(encoding="utf-8"))
+    return HTMLResponse(content="<h2>Access Management</h2><p>Admin template missing.</p>")
+
+
+@app.get("/admin/users", response_model=list[User], tags=["Admin"])
+def admin_get_users(admin: User = Depends(require_admin)):
+    """List all user accounts for administration. Never includes password hashes."""
+    with get_db() as conn:
+        return list_all_users(conn)
+
+
+@app.post("/admin/users", response_model=User, status_code=status.HTTP_201_CREATED, tags=["Admin"])
+def admin_create_teacher(req: UserCreateRequest, admin: User = Depends(require_admin)):
+    """Administrator-only endpoint to provision a new teacher account."""
+    with get_db() as conn:
+        return create_teacher_account(conn, req)
+
+
+@app.patch("/admin/users/{user_id}/status", response_model=User, tags=["Admin"])
+def admin_set_user_status(user_id: str, req: UserStatusUpdateRequest, admin: User = Depends(require_admin)):
+    """Activate or deactivate a user account. Deactivation immediately invalidates active sessions."""
+    with get_db() as conn:
+        return update_user_status(conn, user_id=user_id, is_active=req.is_active, acting_admin_id=admin.id)
+
+
+@app.post("/admin/users/{user_id}/reset-password", tags=["Admin"])
+def admin_reset_password(user_id: str, req: UserResetPasswordRequest, admin: User = Depends(require_admin)):
+    """Reset a teacher account password and terminate their active sessions."""
+    with get_db() as conn:
+        reset_user_password(conn, user_id=user_id, new_password=req.new_password)
+    return {"status": "ok", "message": "Password reset successfully. The teacher must log in again."}
+
+
+# Explicit rejection of public registration
+@app.api_route("/register", methods=["GET", "POST"], include_in_schema=False)
+@app.api_route("/signup", methods=["GET", "POST"], include_in_schema=False)
+def no_public_registration():
+    """Explicitly reject all public registration attempts."""
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Public registration is disabled. Teacher accounts are created exclusively by administrators.",
+    )
+
+
+# ---------------------------------------------------------------------------
 # GET /curriculum/status — check availability and indexing of Class 1-5 textbooks
 # ---------------------------------------------------------------------------
 
 @app.get("/curriculum/status", tags=["Curriculum"])
-def get_curriculum_readiness():
+def get_curriculum_readiness(current_user: User = Depends(require_teacher)):
     """Return availability and indexing readiness status of the 5 stored class textbooks."""
     return get_curriculum_status()
 
@@ -117,8 +318,10 @@ def get_curriculum_readiness():
 # ---------------------------------------------------------------------------
 
 @app.get("/", response_class=HTMLResponse, tags=["Web UI"])
-def teacher_dashboard():
-    """Serve the interactive Teacher Portal web UI."""
+def teacher_dashboard(current_user: User = Depends(get_current_user)):
+    """Serve the interactive Teacher Portal web UI (requires authentication)."""
+    if current_user.role == UserRole.ADMIN:
+        return RedirectResponse(url="/admin", status_code=status.HTTP_303_SEE_OTHER)
     if INDEX_HTML_PATH.exists():
         return HTMLResponse(content=INDEX_HTML_PATH.read_text(encoding="utf-8"))
     return HTMLResponse(
@@ -152,6 +355,7 @@ async def upload_document(
     file: UploadFile = File(...),
     grade: Optional[str] = Form(None),
     subject: Optional[str] = Form("Mathematics"),
+    current_user: User = Depends(require_teacher),
 ):
     """
     Upload a PDF or DOCX file.
@@ -255,7 +459,7 @@ async def upload_document(
 # ---------------------------------------------------------------------------
 
 @app.post("/documents/text", response_model=DocumentInfo, tags=["Documents"])
-def upload_text_document(request: TextDocumentRequest):
+def upload_text_document(request: TextDocumentRequest, current_user: User = Depends(require_teacher)):
     """
     Submit syllabus or textbook content directly as plain text.
     Splits into chunks, creates embeddings, builds FAISS index,
@@ -342,7 +546,7 @@ def upload_text_document(request: TextDocumentRequest):
 # ---------------------------------------------------------------------------
 
 @app.get("/documents", response_model=list[DocumentSummary], tags=["Documents"])
-def get_documents():
+def get_documents(current_user: User = Depends(require_teacher)):
     """List all uploaded and processed documents."""
     return list_document_records()
 
@@ -352,7 +556,7 @@ def get_documents():
 # ---------------------------------------------------------------------------
 
 @app.get("/documents/{document_id}", response_model=DocumentRecord, tags=["Documents"])
-def get_document(document_id: str):
+def get_document(document_id: str, current_user: User = Depends(require_teacher)):
     """Retrieve metadata for a single uploaded document."""
     try:
         return load_document_record(document_id)
@@ -367,7 +571,7 @@ def get_document(document_id: str):
 # ---------------------------------------------------------------------------
 
 @app.delete("/documents/{document_id}", tags=["Documents"])
-def delete_document(document_id: str):
+def delete_document(document_id: str, current_user: User = Depends(require_teacher)):
     """Delete an uploaded document, its metadata record, and its FAISS index."""
     deleted = delete_document_and_assets(document_id)
     if not deleted:
@@ -388,22 +592,19 @@ def resolve_curriculum_and_passages(
     Uses the 5 permanently stored textbooks (Classes 1-5) by default.
     """
     exam_type = request.exam_type or ExamType.FINAL
-    academic_class = request.academic_grade or request.grade
+    academic_class = format_grade_display(request.academic_grade or request.grade)
     acad_num = parse_grade_number(academic_class)
-
-    # If document_id is not specified or is a curriculum document, route to permanent textbooks
     is_auto_curriculum = not request.document_id or request.document_id.startswith("curriculum_class_")
 
     forbidden_units: list[str] = []
 
     if exam_type == ExamType.PREREQUISITE:
-        # Rule: Prerequisite curriculum class = Selected academic class - 1
         if acad_num is not None and acad_num <= 1:
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    f"Prerequisite Examination is not available for {format_grade_display(academic_class)} "
-                    "(prerequisite assessments require a preceding academic class, which is not provided)."
+                    f"Prerequisite Examination is not available for {academic_class} "
+                    "unless a previous-level curriculum textbook is provided."
                 ),
             )
 
@@ -412,95 +613,86 @@ def resolve_curriculum_and_passages(
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e))
 
-        target_grade_num = parse_grade_number(prev_class)
+        prev_num = parse_grade_number(prev_class)
+        target_grade_str = format_grade_display(prev_class)
 
-        if is_auto_curriculum and target_grade_num is not None:
-            tb_path = get_textbook_path(target_grade_num)
-            if not tb_path.exists():
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"Textbook for Class {target_grade_num} not found at {tb_path}. Please provide the textbook.",
-                )
-            target_doc_id = get_curriculum_doc_id(target_grade_num)
+        # Check if previous class textbook exists in curriculum (Classes 1-5)
+        tb_exists = False
+        if prev_num is not None and 1 <= prev_num <= 5:
+            tb_path = get_textbook_path(prev_num)
+            tb_exists = tb_path.exists()
+
+        if is_auto_curriculum and tb_exists and prev_num is not None:
+            target_doc_id = get_curriculum_doc_id(prev_num)
             try:
                 target_doc = load_document_record(target_doc_id)
             except FileNotFoundError:
                 from app.curriculum import index_curriculum_textbook
-                target_doc = index_curriculum_textbook(target_grade_num)
-
-            request.document_id = target_doc.document_id
+                target_doc = index_curriculum_textbook(prev_num)
+            all_ch = get_chapters_for_class(prev_num)
         else:
-            # Custom document path (e.g. from legacy tests)
-            try:
-                selected_doc = load_document_record(request.document_id)
-            except FileNotFoundError:
-                selected_doc = DocumentRecord(
-                    document_id=request.document_id,
-                    original_filename=f"{request.document_id}.pdf",
-                    safe_filename=f"{request.document_id}.pdf",
-                    grade=request.grade,
-                    subject=request.subject,
-                    num_chunks=1,
-                    has_index=True,
-                )
-            doc_grade_num = (
-                parse_grade_number(selected_doc.grade)
-                if selected_doc.grade
-                else parse_grade_number(selected_doc.original_filename)
-            )
-            if doc_grade_num == target_grade_num:
-                target_doc = selected_doc
-            else:
-                alt_doc = find_best_document_for_grade(grade=prev_class, subject=request.subject)
-                if alt_doc is not None:
-                    target_doc = alt_doc
-                    request.document_id = alt_doc.document_id
-                else:
-                    raise HTTPException(
-                        status_code=422,
-                        detail=(
-                            f"Prerequisite Examination requires syllabus for Class {prev_class} {request.subject} "
-                            f"(for students enrolled in {format_grade_display(academic_class)}). "
-                            f"The selected document '{selected_doc.original_filename}' is for Class {doc_grade_num or 'Unknown'}, "
-                            f"and no syllabus document was found for Class {prev_class}. "
-                            f"Please upload or select the Class {prev_class} syllabus document."
-                        ),
-                    )
+            # Check uploaded documents for previous class
+            alt_doc = find_best_document_for_grade(grade=prev_class, subject=request.subject)
+            if alt_doc is None and request.document_id:
+                try:
+                    selected_doc = load_document_record(request.document_id)
+                    sel_num = parse_grade_number(selected_doc.grade or selected_doc.original_filename)
+                    if sel_num == prev_num:
+                        alt_doc = selected_doc
+                except FileNotFoundError:
+                    pass
 
-        request.curriculum_grade = format_grade_display(prev_class)
-        request.academic_grade = format_grade_display(academic_class)
-        chapters = get_chapters_for_class(target_grade_num) if target_grade_num else (target_doc.units or [])
-        request.permitted_units = chapters
+            if alt_doc is not None:
+                target_doc = alt_doc
+                all_ch = order_chapters_by_textbook(alt_doc.units) if alt_doc.units else [f"Class {prev_class} Curriculum"]
+            else:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"Prerequisite Examination requires syllabus for Class {prev_class} {request.subject} "
+                        f"(for students enrolled in {academic_class}). "
+                        f"The selected document is for a different class, and no syllabus document was found for Class {prev_class}. "
+                        f"Please upload or select the Class {prev_class} syllabus document."
+                    ),
+                )
+
+        request.curriculum_grade = target_grade_str
+        request.academic_grade = academic_class
+        request.permitted_units = all_ch
         request.forbidden_units = []
-        request.syllabus_scope = (
-            request.syllabus_scope
-            or (
-                f"Full syllabus of {request.curriculum_grade} Mathematics "
-                f"({len(chapters)} chapters: {', '.join(chapters)}) "
-                f"[Prerequisite for {request.academic_grade}]"
+        request.document_id = target_doc.document_id
+        if not request.syllabus_scope:
+            request.syllabus_scope = (
+                f"Full syllabus of {target_grade_str} Mathematics "
+                f"({len(all_ch)} chapters: {', '.join(all_ch)}) "
+                f"[Prerequisite for {academic_class}]"
             )
-        )
 
         query_topic = (
             request.topic
             if (request.topic and request.topic not in ("Mathematics Curriculum", "General Math"))
-            else f"{request.curriculum_grade} Mathematics foundational concepts"
+            else f"{target_grade_str} Mathematics"
         )
-
         try:
-            passages = retrieve_relevant_chunks(target_doc.document_id, query_topic)
+            passages = retrieve_relevant_chunks(
+                document_id=target_doc.document_id,
+                query=query_topic,
+                first_half_only=False,
+                permitted_units=all_ch,
+            )
         except FileNotFoundError as e:
             raise HTTPException(status_code=404, detail=str(e))
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e))
 
-    elif exam_type == ExamType.MIDTERM:
-        # Midterm uses selected academic class, restricted to first half of syllabus
-        curr_grade = format_grade_display(academic_class)
-        request.curriculum_grade = curr_grade
-        request.academic_grade = curr_grade
+        return target_doc, passages, []
 
-        if is_auto_curriculum and acad_num is not None:
+    elif exam_type == ExamType.MIDTERM:
+        curr_grade_str = academic_class
+        request.curriculum_grade = curr_grade_str
+        request.academic_grade = academic_class
+
+        if is_auto_curriculum and acad_num is not None and acad_num in CURRICULUM_CHAPTERS:
             tb_path = get_textbook_path(acad_num)
             if not tb_path.exists():
                 raise HTTPException(
@@ -514,8 +706,9 @@ def resolve_curriculum_and_passages(
                 from app.curriculum import index_curriculum_textbook
                 target_doc = index_curriculum_textbook(acad_num)
             request.document_id = target_doc.document_id
-            first_half_units = get_midterm_chapters_for_class(acad_num)
-            forbidden_units = get_second_half_chapters_for_class(acad_num)
+            permitted = get_midterm_chapters_for_class(acad_num)
+            forbidden = get_second_half_chapters_for_class(acad_num)
+            all_ch = get_chapters_for_class(acad_num)
         else:
             try:
                 target_doc = load_document_record(request.document_id)
@@ -530,49 +723,46 @@ def resolve_curriculum_and_passages(
                     has_index=True,
                 )
             if target_doc.units and len(target_doc.units) > 1:
-                first_half_units = determine_midterm_scope(target_doc.units)
-                forbidden_units = target_doc.units[len(first_half_units):]
+                all_ch = order_chapters_by_textbook(target_doc.units)
+                permitted = determine_midterm_scope(all_ch)
+                forbidden = determine_second_half_scope(all_ch)
             else:
-                first_half_units = []
-                forbidden_units = []
+                all_ch = [request.topic or "Midterm Topics"]
+                permitted = all_ch
+                forbidden = []
 
-        request.permitted_units = first_half_units
-        request.forbidden_units = forbidden_units
-
-        if request.syllabus_scope:
-            scope_str = request.syllabus_scope
-        elif first_half_units:
-            scope_str = f"First half of {curr_grade} syllabus ({len(first_half_units)} chapters: {', '.join(first_half_units)})"
-        else:
-            scope_str = f"First half of {curr_grade} syllabus (Unit 1 to midpoint)"
-
-        request.syllabus_scope = scope_str
+        request.permitted_units = permitted
+        request.forbidden_units = forbidden
+        if not request.syllabus_scope:
+            request.syllabus_scope = (
+                f"First half of {curr_grade_str} syllabus ({len(permitted)} chapters: {', '.join(permitted)})"
+            )
 
         query_topic = (
             request.topic
             if (request.topic and request.topic not in ("Mathematics Curriculum", "General Math"))
-            else (", ".join(first_half_units) if first_half_units else f"{curr_grade} Mathematics first half")
+            else (", ".join(permitted) if permitted else f"{curr_grade_str} Mathematics first half")
         )
-
         try:
             passages = retrieve_relevant_chunks(
-                target_doc.document_id,
-                query_topic,
+                document_id=target_doc.document_id,
+                query=query_topic,
                 first_half_only=True,
-                permitted_units=first_half_units if first_half_units else None,
+                permitted_units=permitted,
             )
         except FileNotFoundError as e:
             raise HTTPException(status_code=404, detail=str(e))
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e))
 
-    else:
-        # Final Examination uses full syllabus of selected class
-        curr_grade = format_grade_display(academic_class)
-        request.curriculum_grade = curr_grade
-        request.academic_grade = curr_grade
+        return target_doc, passages, forbidden
 
-        if is_auto_curriculum and acad_num is not None:
+    else:  # Final Examination
+        curr_grade_str = academic_class
+        request.curriculum_grade = curr_grade_str
+        request.academic_grade = academic_class
+
+        if is_auto_curriculum and acad_num is not None and acad_num in CURRICULUM_CHAPTERS:
             tb_path = get_textbook_path(acad_num)
             if not tb_path.exists():
                 raise HTTPException(
@@ -586,7 +776,7 @@ def resolve_curriculum_and_passages(
                 from app.curriculum import index_curriculum_textbook
                 target_doc = index_curriculum_textbook(acad_num)
             request.document_id = target_doc.document_id
-            chapters = get_chapters_for_class(acad_num)
+            all_ch = get_chapters_for_class(acad_num)
         else:
             try:
                 target_doc = load_document_record(request.document_id)
@@ -600,33 +790,33 @@ def resolve_curriculum_and_passages(
                     num_chunks=1,
                     has_index=True,
                 )
-            chapters = target_doc.units or []
+            all_ch = order_chapters_by_textbook(target_doc.units) if target_doc.units else ([request.topic] if request.topic else [f"{academic_class} Mathematics"])
 
-        request.permitted_units = chapters
+        request.permitted_units = all_ch
         request.forbidden_units = []
-        request.syllabus_scope = (
-            request.syllabus_scope
-            or (
-                f"Full syllabus of {curr_grade} Mathematics ({len(chapters)} chapters: {', '.join(chapters)})"
-                if chapters
-                else "Full Syllabus"
+        if not request.syllabus_scope:
+            request.syllabus_scope = (
+                f"Full syllabus of {curr_grade_str} Mathematics ({len(all_ch)} chapters: {', '.join(all_ch)})"
             )
-        )
 
         query_topic = (
             request.topic
             if (request.topic and request.topic not in ("Mathematics Curriculum", "General Math"))
-            else f"{curr_grade} Mathematics comprehensive curriculum"
+            else f"{curr_grade_str} Mathematics"
         )
-
         try:
-            passages = retrieve_relevant_chunks(target_doc.document_id, query_topic)
+            passages = retrieve_relevant_chunks(
+                document_id=target_doc.document_id,
+                query=query_topic,
+                first_half_only=False,
+                permitted_units=all_ch,
+            )
         except FileNotFoundError as e:
             raise HTTPException(status_code=404, detail=str(e))
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e))
 
-    return target_doc, passages, forbidden_units
+        return target_doc, passages, []
 
 
 # ---------------------------------------------------------------------------
@@ -634,7 +824,7 @@ def resolve_curriculum_and_passages(
 # ---------------------------------------------------------------------------
 
 @app.post("/papers/generate", response_model=Paper, tags=["Papers"])
-def generate_paper(request: PaperGenerateRequest):
+def generate_paper(request: PaperGenerateRequest, current_user: User = Depends(require_teacher)):
     """
     Generate a question paper from an uploaded document.
     Retrieves relevant passages based on the examination type, calls Gemini,
@@ -642,8 +832,9 @@ def generate_paper(request: PaperGenerateRequest):
     """
     target_doc, passages, forbidden_units = resolve_curriculum_and_passages(request)
 
-    # Pre-generate the structured examination blueprint
+    # Pre-generate the structured examination blueprint and assign chapter coverage
     blueprint = request.get_or_create_blueprint()
+    assign_blueprint_chapter_coverage(blueprint, request.permitted_units or [])
 
     # Generate questions with Gemini
     try:
@@ -680,6 +871,12 @@ def generate_paper(request: PaperGenerateRequest):
         is_valid, validation_errors = validate_full_paper(paper)
         if not is_valid:
             logger.warning("Paper %s generated with validation issues: %s", paper.paper_id, validation_errors)
+            critical_errors = [e for e in validation_errors if "forbidden" in e.lower() or "not belong to permitted" in e.lower()]
+            if critical_errors:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Generated paper failed syllabus scope validation: {'; '.join(critical_errors)}"
+                )
         save_paper(paper)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -692,7 +889,7 @@ def generate_paper(request: PaperGenerateRequest):
 # ---------------------------------------------------------------------------
 
 @app.post("/papers/generate-batch", response_model=BatchPaperResponse, tags=["Papers"])
-def generate_batch_papers(request: BatchPaperGenerateRequest):
+def generate_batch_papers(request: BatchPaperGenerateRequest, current_user: User = Depends(require_teacher)):
     """
     Generate multiple unique paper versions in a single request sharing the same blueprint.
     Retrieves syllabus passages according to examination type, builds candidate pool,
@@ -702,6 +899,7 @@ def generate_batch_papers(request: BatchPaperGenerateRequest):
     batch_id = uuid.uuid4().hex[:10]
 
     target_doc, passages, forbidden_units = resolve_curriculum_and_passages(request)
+    assign_blueprint_chapter_coverage(blueprint, request.permitted_units or [])
 
     # Generate candidate question pool
     try:
@@ -822,7 +1020,7 @@ def generate_batch_papers(request: BatchPaperGenerateRequest):
 # ---------------------------------------------------------------------------
 
 @app.get("/papers", response_model=list[PaperSummary], tags=["Papers"])
-def get_papers():
+def get_papers(current_user: User = Depends(require_teacher)):
     """List all saved question papers."""
     return list_papers()
 
@@ -832,7 +1030,7 @@ def get_papers():
 # ---------------------------------------------------------------------------
 
 @app.get("/papers/{paper_id}", response_model=Paper, tags=["Papers"])
-def get_paper(paper_id: str):
+def get_paper(paper_id: str, current_user: User = Depends(require_teacher)):
     """Retrieve a single saved paper by its ID."""
     try:
         return load_paper(paper_id)
@@ -847,7 +1045,7 @@ def get_paper(paper_id: str):
 # ---------------------------------------------------------------------------
 
 @app.get("/papers/{paper_id}/pdf", tags=["Papers"])
-def download_paper_pdf(paper_id: str, include_answers: bool = True):
+def download_paper_pdf(paper_id: str, include_answers: bool = True, current_user: User = Depends(require_teacher)):
     """
     Download a generated paper as a PDF.
     Set include_answers=false for a student version without solutions.
@@ -885,7 +1083,7 @@ def download_paper_pdf(paper_id: str, include_answers: bool = True):
 # ---------------------------------------------------------------------------
 
 @app.delete("/papers/{paper_id}", tags=["Papers"])
-def delete_paper_endpoint(paper_id: str):
+def delete_paper_endpoint(paper_id: str, current_user: User = Depends(require_teacher)):
     """Delete a saved question paper."""
     deleted = delete_paper(paper_id)
     if not deleted:
