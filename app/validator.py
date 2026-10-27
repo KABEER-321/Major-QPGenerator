@@ -118,10 +118,81 @@ def check_question_coherence(text: str) -> tuple[bool, Optional[str]]:
     return True, None
 
 
+def check_grade_age_appropriateness(q: Question) -> tuple[bool, Optional[str]]:
+    """
+    Validate that question language, concepts, and format match the student's age/grade.
+    Specifically protects Class 1 (age 6-7) from:
+    - English comprehension / vocabulary / definition questions
+    - Adult commercial contexts (banking, factories, payroll, demographics)
+    - Excessive wordiness or abstract essays in short/long answer
+    """
+    g_str = str(q.grade or "")
+    m = re.search(r"\b([1-5])\b", g_str)
+    grade_num = int(m.group(1)) if m else None
+
+    # If grade is not specified on question, try parsing from chapter
+    if grade_num is None and q.chapter:
+        m2 = re.search(r"Class\s*([1-5])", q.chapter, re.IGNORECASE)
+        if m2:
+            grade_num = int(m2.group(1))
+
+    text_lower = q.question_text.lower()
+
+    if grade_num == 1:
+        # 1. Prohibit definition / essay / English grammar questions
+        definitional_patterns = [
+            (r"\bwhat\s+(?:does|is)\b.*\b(?:mean|meaning|represent|stand for)\b", "definition of mathematical symbol/term"),
+            (r"\b(?:what\s+does\b.*\b(?:symbol|sign|term|word))\b", "definition of mathematical symbol/term"),
+            (r"\b(?:define|give\s+the\s+definition\s+of)\b", "definition prompt"),
+            (r"\b(?:state\s+(?:the\s+)?vocabulary|terms?\s+used\s+in)\b", "vocabulary recall"),
+            (r"\b(?:explain\s+(?:in\s+words|why|what\s+term|how))\b", "written explanation"),
+            (r"\b(?:in\s+your\s+own\s+words)\b", "essay prompt"),
+            (r"\b(?:write\s+a\s+sentence\s+explaining)\b", "written sentence explanation"),
+            (r"\b(?:describe\s+(?:the\s+meaning|the\s+rule))\b", "rule description"),
+            (r"\b(?:english\s+word|vocabulary\s+term)\b", "English vocabulary test"),
+        ]
+        for pat, desc in definitional_patterns:
+            if re.search(pat, text_lower):
+                return False, f"Class 1 questions must test direct math skills, not {desc} (matched '{pat}')."
+
+        # 2. Prohibit adult commercial / manufacturing / demographic contexts
+        adult_patterns = [
+            (r"\b(?:bank|deposit|deposited|withdrawal|account\s+balance|interest)\b", "banking/financial"),
+            (r"\b(?:factory|manufacture|manufactured|warehouse|production)\b", "factory manufacturing"),
+            (r"\b(?:salary|employee|census|population\s+of\s+(?:a\s+)?village)\b", "adult demographics/employment"),
+            (r"\b(?:wholesale|retailer|merchant\s+purchased)\b", "commercial merchant trading"),
+        ]
+        for pat, desc in adult_patterns:
+            if re.search(pat, text_lower):
+                return False, f"Class 1 questions cannot use adult {desc} contexts (matched '{pat}')."
+
+        # 3. Word count check for Class 1 (excluding sub-part sums)
+        words = text_lower.split()
+        if q.question_type == QuestionType.MULTIPLE_CHOICE and len(words) > 35:
+            return False, f"Class 1 MCQ is too wordy for 6-year-old readers ({len(words)} words; max 35)."
+        if q.question_type == QuestionType.SHORT_ANSWER and len(words) > 40:
+            return False, f"Class 1 Short Answer is too wordy ({len(words)} words; max 40)."
+
+        # 4. Long Answer must have sub-parts or clear arithmetic sums, not a giant word essay
+        if q.question_type == QuestionType.LONG_ANSWER:
+            has_subparts = bool(re.search(r"\([a-d]\)|\(i\)|\b[a-d]\)|\b1\)\s*.*2\)", q.question_text))
+            has_math_ops = bool(re.search(r"[+\-=__]{2,}|[+−×÷=]", q.question_text))
+            if not has_subparts and not has_math_ops and len(words) > 45:
+                return False, "Class 1 Long Answer must consist of structured simple sub-problems or arithmetic sums, not long word essays."
+
+    elif grade_num == 2:
+        # Avoid heavy adult commercial contexts for Class 2
+        for pat in [r"\b(?:bank|deposit|deposited|withdrawal|interest|factory|manufactured)\b"]:
+            if re.search(pat, text_lower):
+                return False, "Class 2 questions should avoid adult banking/factory contexts."
+
+    return True, None
+
+
 def validate_question_quality(q: Question) -> tuple[bool, Optional[str]]:
     """
     Perform full quality validation on an individual question.
-    Checks: clarity, coherence, MCQ completeness, and SymPy mathematical check.
+    Checks: clarity, coherence, MCQ completeness, SymPy mathematical check, and age-appropriateness.
     """
     # 1. Clarity check
     ok, err = check_question_clarity(q.question_text, q.question_type, q.options)
@@ -152,6 +223,11 @@ def validate_question_quality(q: Question) -> tuple[bool, Optional[str]]:
             False,
             f"Mathematical discrepancy detected: {q.math_verification.details or 'Calculation check failed'}",
         )
+
+    # 5. Grade / age appropriateness check
+    ok, err = check_grade_age_appropriateness(q)
+    if not ok:
+        return False, err
 
     return True, None
 

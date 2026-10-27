@@ -272,6 +272,7 @@ def extract_textbook_chunks(grade_num: int) -> list[Document]:
                 metadata = {
                     "doc_id": get_curriculum_doc_id(grade_num),
                     "chunk_id": chunk_id,
+                    "chunk_index": chunk_counter,
                     "grade": f"Class {grade_num}",
                     "subject": "Mathematics",
                     "chapter": ch_name,

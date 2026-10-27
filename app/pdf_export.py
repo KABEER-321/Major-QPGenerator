@@ -569,18 +569,24 @@ def generate_pdf(paper: Paper, include_answers: bool = True) -> bytes:
         q_idx = 1
         for sec in sections_to_render:
             for q in sec.questions:
-                chunk_info = "Textbook"
+                chunk_info = "Textbook Chunk"
+                ch_display = q.chapter or q.topic or "Mathematics"
                 if q.source_references:
                     ref = q.source_references[0]
                     chunk_idx = ref.chunk_index if ref.chunk_index is not None else 0
-                    chunk_info = f"Chunk {chunk_idx}"
+                    if ref.source_filename and ref.source_filename not in ("unknown", "Textbook", "Mathematics Curriculum"):
+                        chunk_info = f"{ref.source_filename} (Chunk {chunk_idx})"
+                        if ch_display in ("Mathematics Curriculum", "Mathematics", "General Math"):
+                            ch_display = ref.source_filename
+                    else:
+                        chunk_info = f"Chunk {chunk_idx}"
 
                 mapping_data.append([
                     Paragraph(f"Q{q_idx}", styles["BoxText"]),
                     Paragraph(_escape(sec.section_id), styles["BoxText"]),
                     Paragraph(_escape(q.question_type.value.replace("_", " ").title()), styles["BoxText"]),
                     Paragraph(f"{q.marks}", styles["BoxText"]),
-                    Paragraph(_escape(q.chapter or q.topic or "Mathematics"), styles["BoxText"]),
+                    Paragraph(_escape(ch_display), styles["BoxText"]),
                     Paragraph(_escape(chunk_info), styles["BoxText"]),
                 ])
                 q_idx += 1

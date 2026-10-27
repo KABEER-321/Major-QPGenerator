@@ -539,6 +539,7 @@ def create_default_blueprint(
     question_types: list[QuestionType],
     overall_difficulty: Difficulty = Difficulty.MEDIUM,
     topic: str = "",
+    grade: str = "",
 ) -> ExamBlueprint:
     """
     Construct a valid, deterministic ExamBlueprint from basic paper parameters.
@@ -581,18 +582,39 @@ def create_default_blueprint(
         QuestionType.SHORT_ANSWER: "Short Answer Questions",
         QuestionType.LONG_ANSWER: "Long Answer / Problem Solving Questions",
     }
-    instruction_map = {
-        QuestionType.MULTIPLE_CHOICE: (
-            "Choose the correct answer from the four options given for each question "
-            "and write the letter of the correct option in the space provided."
-        ),
-        QuestionType.SHORT_ANSWER: (
-            "Answer the following questions by showing necessary steps and calculations."
-        ),
-        QuestionType.LONG_ANSWER: (
-            "Solve the following word problems and show all calculation steps clearly."
-        ),
-    }
+
+    # Tailor section instructions to grade level (especially Class 1 aged 6-7)
+    is_class_1 = False
+    if grade:
+        m_grade = re.search(r"\b([1-5])\b", str(grade))
+        if m_grade and m_grade.group(1) == "1":
+            is_class_1 = True
+
+    if is_class_1:
+        instruction_map = {
+            QuestionType.MULTIPLE_CHOICE: (
+                "Choose the correct option and write its letter in the box."
+            ),
+            QuestionType.SHORT_ANSWER: (
+                "Write the correct number or answer in the blank space provided."
+            ),
+            QuestionType.LONG_ANSWER: (
+                "Solve the following mathematical sums and number problems."
+            ),
+        }
+    else:
+        instruction_map = {
+            QuestionType.MULTIPLE_CHOICE: (
+                "Choose the correct answer from the four options given for each question "
+                "and write the letter of the correct option in the space provided."
+            ),
+            QuestionType.SHORT_ANSWER: (
+                "Answer the following questions by showing necessary steps and calculations."
+            ),
+            QuestionType.LONG_ANSWER: (
+                "Solve the following word problems and show all calculation steps clearly."
+            ),
+        }
 
     sections = []
     for i, qt in enumerate(active_types):
@@ -726,6 +748,7 @@ class PaperGenerateRequest(BaseModel):
             question_types=self.question_types,
             overall_difficulty=self.difficulty,
             topic=self.topic,
+            grade=self.academic_grade or self.grade,
         )
 
 
@@ -814,6 +837,7 @@ class BatchPaperGenerateRequest(BaseModel):
             question_types=self.question_types,
             overall_difficulty=self.difficulty,
             topic=self.topic,
+            grade=self.academic_grade or self.grade,
         )
 
 
