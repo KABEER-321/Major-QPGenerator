@@ -1211,91 +1211,160 @@
       document.getElementById('download-teacher-btn').href = `/papers/${paper.paper_id}/pdf?include_answers=true`;
       document.getElementById('download-student-btn').href = `/papers/${paper.paper_id}/pdf?include_answers=false`;
 
-      renderQuestions(paper.questions);
+      renderPaperContent(paper);
     }
 
     function switchView(view) {
       currentView = view;
       document.getElementById('tab-teacher').classList.toggle('active', view === 'teacher');
       document.getElementById('tab-student').classList.toggle('active', view === 'student');
-      if (currentPaper) renderQuestions(currentPaper.questions);
+      if (currentPaper) renderPaperContent(currentPaper);
     }
 
-    function renderQuestions(questions) {
+    function renderPaperContent(paper) {
       const container = document.getElementById('questions-list');
       container.innerHTML = '';
 
-      questions.forEach((q, idx) => {
-        const card = document.createElement('div');
-        card.className = 'question-card';
+      let globalQNum = 1;
 
-        let optionsHtml = '';
-        if (q.options && q.options.length > 0) {
-          optionsHtml = '<div class="options-grid">' +
-            q.options.map((opt, oIdx) => {
-              const letter = String.fromCharCode(65 + oIdx);
-              const isCorrect = (currentView === 'teacher' && opt === q.correct_option);
-              return `<div class="option-item ${isCorrect ? 'correct' : ''}">
-                <strong>${letter}.</strong> <span>${escapeHtml(opt)}</span> ${isCorrect ? '✓' : ''}
-              </div>`;
-            }).join('') +
-          '</div>';
+      // Check if structured sections exist
+      if (paper.sections && paper.sections.length > 0) {
+        paper.sections.forEach((sec) => {
+          // Section Card Header
+          const secHeader = document.createElement('div');
+          secHeader.style.cssText = 'margin: 24px 0 14px 0; padding: 14px 18px; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 10px;';
+          
+          let marksFormula = `${sec.num_questions} Questions • ${sec.section_marks} Marks`;
+          if (sec.marks_per_question) {
+            marksFormula = `${sec.num_questions} × ${sec.marks_per_question} = ${sec.section_marks} Marks`;
+          } else if (sec.num_questions > 0 && sec.section_marks % sec.num_questions === 0) {
+            marksFormula = `${sec.num_questions} × ${sec.section_marks / sec.num_questions} = ${sec.section_marks} Marks`;
+          }
+
+          secHeader.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+              <h3 style="margin: 0; color: #e2e8f0; font-size: 1.15rem; font-weight: 700; letter-spacing: -0.01em;">${escapeHtml(sec.title)}</h3>
+              <span class="badge" style="background: rgba(99, 102, 241, 0.22); color: #c7d2fe; font-size: 0.85rem; padding: 4px 12px; border-radius: 6px; font-weight: 600;">
+                ${marksFormula}
+              </span>
+            </div>
+            ${sec.instructions ? `<div style="margin-top: 6px; color: var(--text-muted); font-size: 0.85rem; font-style: italic;">${escapeHtml(sec.instructions)}</div>` : ''}
+          `;
+          container.appendChild(secHeader);
+
+          // Render questions within this section
+          sec.questions.forEach((q) => {
+            container.appendChild(createQuestionCard(q, globalQNum));
+            globalQNum++;
+          });
+        });
+      } else {
+        // Fallback for flat questions list
+        (paper.questions || []).forEach((q) => {
+          container.appendChild(createQuestionCard(q, globalQNum));
+          globalQNum++;
+        });
+      }
+    }
+
+    function createQuestionCard(q, qNum) {
+      const card = document.createElement('div');
+      card.className = 'question-card';
+
+      let optionsHtml = '';
+      if (q.options && q.options.length > 0) {
+        optionsHtml = '<div class="options-grid">' +
+          q.options.map((opt, oIdx) => {
+            const letter = String.fromCharCode(65 + oIdx);
+            const isCorrect = (currentView === 'teacher' && opt === q.correct_option);
+            return `<div class="option-item ${isCorrect ? 'correct' : ''}">
+              <strong>${letter}.</strong> <span>${escapeHtml(opt)}</span> ${isCorrect ? '✓' : ''}
+            </div>`;
+          }).join('') +
+        '</div>';
+      }
+
+      let studentWorkArea = '';
+      let teacherContent = '';
+
+      if (currentView === 'student') {
+        if (q.question_type === 'multiple_choice') {
+          studentWorkArea = `
+            <div style="margin-top: 12px; padding: 8px 12px; background: rgba(255, 255, 255, 0.03); border: 1px dashed var(--border-color); border-radius: 6px; font-size: 0.9rem; color: var(--text-muted);">
+              <strong>Answer : &nbsp;[ &nbsp;&nbsp;&nbsp;&nbsp; ]</strong> &nbsp;&nbsp;&nbsp;&nbsp; __________________________________________________
+            </div>
+          `;
+        } else if (q.question_type === 'short_answer') {
+          studentWorkArea = `
+            <div style="margin-top: 12px; height: 75px; border-bottom: 1px dashed var(--border-color); display: flex; flex-direction: column; justify-content: space-around;">
+              <div style="border-bottom: 1px dashed rgba(255,255,255,0.06);"></div>
+              <div style="border-bottom: 1px dashed rgba(255,255,255,0.06);"></div>
+              <div style="color: var(--text-muted); font-size: 0.78rem; font-style: italic;">[ Space for Student Working &amp; Answer ]</div>
+            </div>
+          `;
+        } else {
+          studentWorkArea = `
+            <div style="margin-top: 12px; height: 130px; border-bottom: 1px dashed var(--border-color); display: flex; flex-direction: column; justify-content: space-around;">
+              <div style="border-bottom: 1px dashed rgba(255,255,255,0.06);"></div>
+              <div style="border-bottom: 1px dashed rgba(255,255,255,0.06);"></div>
+              <div style="border-bottom: 1px dashed rgba(255,255,255,0.06);"></div>
+              <div style="border-bottom: 1px dashed rgba(255,255,255,0.06);"></div>
+              <div style="color: var(--text-muted); font-size: 0.78rem; font-style: italic;">[ Dedicated Problem Solving Workspace ]</div>
+            </div>
+          `;
+        }
+      } else {
+        // Teacher View: Solutions, Guidance, Math Verification, Citations
+        let mathBadge = '';
+        if (q.math_verification) {
+          const mv = q.math_verification;
+          if (mv.status === 'verified') {
+            mathBadge = `<div class="math-check-badge verified">✓ SymPy Math Checked: ${escapeHtml(mv.details)}</div>`;
+          } else if (mv.status === 'discrepancy') {
+            mathBadge = `<div class="math-check-badge discrepancy">⚠ Math Discrepancy: ${escapeHtml(mv.details)}</div>`;
+          }
         }
 
-        let teacherContent = '';
-        if (currentView === 'teacher') {
-          // Math verification badge
-          let mathBadge = '';
-          if (q.math_verification) {
-            const mv = q.math_verification;
-            if (mv.status === 'verified') {
-              mathBadge = `<div class="math-check-badge verified">✓ SymPy Math Checked: ${escapeHtml(mv.details)}</div>`;
-            } else if (mv.status === 'discrepancy') {
-              mathBadge = `<div class="math-check-badge discrepancy">⚠ Math Discrepancy: ${escapeHtml(mv.details)}</div>`;
-            }
-          }
-
-          // Grounding citation
-          let citationHtml = '';
-          if (q.source_references && q.source_references.length > 0) {
-            const ref = q.source_references[0];
-            citationHtml = `
-              <div class="q-grounding">
-                <span class="grounding-tag">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
-                  Grounded in ${escapeHtml(ref.source_filename)} (Chunk ${ref.chunk_index ?? 0})
-                </span>
-                <span style="font-style: italic;">"${escapeHtml(ref.passage_preview)}"</span>
-              </div>
-            `;
-          }
-
-          teacherContent = `
-            <div class="solution-box">
-              <div class="solution-title">Expected Answer & Marking Guidance</div>
-              <div style="font-weight: 600; margin-bottom: 4px;">Answer: ${escapeHtml(q.answer)}</div>
-              <div style="color: var(--text-muted);">${escapeHtml(q.solution || '')}</div>
+        let citationHtml = '';
+        if (q.source_references && q.source_references.length > 0) {
+          const ref = q.source_references[0];
+          citationHtml = `
+            <div class="q-grounding">
+              <span class="grounding-tag">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+                Grounded in ${escapeHtml(ref.source_filename)} (Chunk ${ref.chunk_index ?? 0})
+              </span>
+              <span style="font-style: italic;">"${escapeHtml(ref.passage_preview)}"</span>
             </div>
-            ${mathBadge}
-            ${citationHtml}
           `;
         }
 
-        card.innerHTML = `
-          <div class="question-card-head">
-            <div class="q-number">
-              <span style="color: var(--accent-primary);">Q${idx + 1}.</span>
-              <span class="badge">${escapeHtml(q.question_type.replace('_', ' ').toUpperCase())}</span>
-            </div>
-            <span class="badge green">${q.marks} Marks</span>
+        teacherContent = `
+          <div class="solution-box">
+            <div class="solution-title">Expected Answer &amp; Marking Guidance</div>
+            <div style="font-weight: 600; margin-bottom: 4px;">Answer: ${escapeHtml(q.answer)}</div>
+            <div style="color: var(--text-muted);">${escapeHtml(q.solution || '')}</div>
           </div>
-          <div class="q-text">${escapeHtml(q.question_text)}</div>
-          ${optionsHtml}
-          ${teacherContent}
+          ${mathBadge}
+          ${citationHtml}
         `;
+      }
 
-        container.appendChild(card);
-      });
+      card.innerHTML = `
+        <div class="question-card-head">
+          <div class="q-number">
+            <span style="color: var(--accent-primary); font-weight: 700;">Q${qNum}.</span>
+            <span class="badge">${escapeHtml(q.question_type.replace('_', ' ').toUpperCase())}</span>
+          </div>
+          <span class="badge green">${q.marks} Mark${q.marks > 1 ? 's' : ''}</span>
+        </div>
+        <div class="q-text">${escapeHtml(q.question_text)}</div>
+        ${optionsHtml}
+        ${studentWorkArea}
+        ${teacherContent}
+      `;
+
+      return card;
     }
 
     // Initialize

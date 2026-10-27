@@ -15,6 +15,7 @@ from app.schemas import (
     Paper,
     PaperSummary,
     Question,
+    QuestionType,
     PaperGenerateRequest,
     PaperSection,
     ExamType,
@@ -56,6 +57,78 @@ def assemble_paper(
             q.subject = request.subject
         if not q.chapter:
             q.chapter = request.topic
+
+    # If sections not provided, construct them using the request blueprint or group by question type
+    if not sections:
+        built_sections = []
+        if hasattr(request, "get_or_create_blueprint"):
+            try:
+                bp = request.get_or_create_blueprint()
+                cursor = 0
+                candidate_sections = []
+                type_mismatch = False
+                for sec_bp in bp.sections:
+                    sec_qs = questions[cursor : cursor + sec_bp.num_questions]
+                    cursor += sec_bp.num_questions
+                    if any(q.question_type != sec_bp.question_type for q in sec_qs):
+                        type_mismatch = True
+                        break
+                    candidate_sections.append(
+                        PaperSection(
+                            section_id=sec_bp.section_id,
+                            title=sec_bp.title,
+                            question_type=sec_bp.question_type,
+                            num_questions=len(sec_qs),
+                            section_marks=sum(q.marks for q in sec_qs),
+                            marks_per_question=sec_bp.marks_per_question,
+                            instructions=getattr(sec_bp, "instructions", None),
+                            questions=sec_qs,
+                        )
+                    )
+                if not type_mismatch and candidate_sections:
+                    if (
+                        sum(len(s.questions) for s in candidate_sections) == len(questions)
+                        and sum(s.section_marks for s in candidate_sections) == request.total_marks
+                    ):
+                        built_sections = candidate_sections
+                        blueprint_id = blueprint_id or bp.blueprint_id
+            except Exception as e:
+                logger.debug("Blueprint-based sectioning omitted: %s", e)
+
+        # Fallback: Group questions by their actual question type (MCQ -> Short Answer -> Long Answer)
+        if not built_sections and questions:
+            type_order = [
+                QuestionType.MULTIPLE_CHOICE,
+                QuestionType.SHORT_ANSWER,
+                QuestionType.LONG_ANSWER,
+            ]
+            title_map = {
+                QuestionType.MULTIPLE_CHOICE: "Multiple Choice Questions",
+                QuestionType.SHORT_ANSWER: "Short Answer Questions",
+                QuestionType.LONG_ANSWER: "Long Answer / Problem Solving Questions",
+            }
+            sec_letters = ["A", "B", "C", "D", "E"]
+            letter_idx = 0
+
+            # Stable sort/group by question type order
+            for qt in type_order:
+                matching_qs = [q for q in questions if q.question_type == qt]
+                if matching_qs:
+                    sid = sec_letters[letter_idx] if letter_idx < len(sec_letters) else f"Sec-{letter_idx+1}"
+                    built_sections.append(
+                        PaperSection(
+                            section_id=sid,
+                            title=f"Section {sid}: {title_map.get(qt, qt.value.title())}",
+                            question_type=qt,
+                            num_questions=len(matching_qs),
+                            section_marks=sum(q.marks for q in matching_qs),
+                            questions=matching_qs,
+                        )
+                    )
+                    letter_idx += 1
+
+        if built_sections:
+            sections = built_sections
 
     paper = Paper(
         paper_id=paper_id,

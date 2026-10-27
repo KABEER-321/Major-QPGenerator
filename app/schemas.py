@@ -277,6 +277,7 @@ class SectionBlueprint(BaseModel):
     marks_distribution: Optional[list[int]] = Field(default=None, description="Explicit marks per question")
     difficulty: Optional[Difficulty] = Field(default=None, description="Difficulty level for this section")
     topics: Optional[list[str]] = Field(default=None, description="Specific topics or subtopics for this section")
+    instructions: Optional[str] = Field(default=None, description="Instructions for students in this section")
 
     @model_validator(mode="after")
     def validate_section_marks(self) -> "SectionBlueprint":
@@ -378,6 +379,115 @@ class ExamBlueprint(BaseModel):
         return self
 
 
+def _solve_blueprint_partition(
+    num_questions: int,
+    total_marks: int,
+    active_types: list[QuestionType],
+) -> tuple[list[int], list[int]]:
+    """
+    Intelligently solve for the optimal question counts and marks per section.
+    Enforces that sum(q_counts) == num_questions and sum(s_marks) == total_marks,
+    with sensible educational proportions and clean marks hierarchy.
+    """
+    k = len(active_types)
+    avg_m = total_marks / num_questions
+
+    if k == 1:
+        return [num_questions], [total_marks]
+
+    if k == 2:
+        best = None
+        best_cost = float("inf")
+        target_r1 = 0.55
+        for q1 in range(1, num_questions):
+            q2 = num_questions - q1
+            for s1 in range(q1, total_marks - q2 + 1):
+                s2 = total_marks - s1
+                m1 = s1 / q1
+                m2 = s2 / q2
+                if m1 > m2:
+                    continue
+                cost = 0.0
+                if s1 % q1 != 0:
+                    cost += 50.0
+                if s2 % q2 != 0:
+                    cost += 50.0
+                cost += abs(q1 / num_questions - target_r1) * 30.0
+                if cost < best_cost:
+                    best_cost = cost
+                    best = ([q1, q2], [s1, s2])
+        if best:
+            return best[0], best[1]
+
+    if k == 3:
+        best = None
+        best_cost = float("inf")
+        for q1 in range(1, num_questions - 1):
+            for q2 in range(1, num_questions - q1):
+                q3 = num_questions - q1 - q2
+                if q3 < 1:
+                    continue
+
+                possible_m1 = [1, 2] if avg_m >= 2.5 else [1]
+                for m1 in possible_m1:
+                    s1 = q1 * m1
+                    if s1 >= total_marks - (q2 + q3):
+                        continue
+                    max_m2 = min(8, int(avg_m * 2) + 2)
+                    for m2 in range(m1 + 1, max(m1 + 2, max_m2)):
+                        s2 = q2 * m2
+                        s3 = total_marks - s1 - s2
+                        if s3 < q3:
+                            continue
+                        m3 = s3 / q3
+                        if m3 < m2:
+                            continue
+
+                        cost = 0.0
+                        is_int_m3 = (s3 % q3 == 0)
+                        if not is_int_m3:
+                            cost += 100.0
+
+                        r1 = q1 / num_questions
+                        r2 = q2 / num_questions
+                        r3 = q3 / num_questions
+                        cost += abs(r1 - 0.40) * 25.0 + abs(r2 - 0.38) * 20.0 + abs(r3 - 0.22) * 30.0
+
+                        m3_int = int(m3)
+                        if is_int_m3 and m3_int in [3, 4, 5, 6, 8, 10]:
+                            cost -= 30.0
+                        if avg_m >= 3.5 and m1 == 2:
+                            cost -= 20.0
+                        if avg_m <= 2.2 and m1 == 1:
+                            cost -= 20.0
+
+                        if cost < best_cost:
+                            best_cost = cost
+                            best = ([q1, q2, q3], [s1, s2, s3])
+        if best:
+            return best[0], best[1]
+
+    # Deterministic fallback allocation
+    base_q = num_questions // k
+    rem_q = num_questions % k
+    q_counts = [base_q + (1 if i < rem_q else 0) for i in range(k)]
+    s_marks = [q for q in q_counts]
+    rem_m = total_marks - sum(s_marks)
+
+    # Distribute remaining marks to higher-index sections first
+    for i in reversed(range(k)):
+        if rem_m <= 0:
+            break
+        add_amount = rem_m // (i + 1)
+        if add_amount > 0:
+            s_marks[i] += add_amount
+            rem_m -= add_amount
+    if rem_m > 0:
+        s_marks[-1] += rem_m
+
+    return q_counts, s_marks
+
+
 def create_default_blueprint(
     num_questions: int,
     total_marks: int,
@@ -412,52 +522,31 @@ def create_default_blueprint(
 
     # If more question types than questions, take only the first num_questions types
     active_types = ordered_types[:min(len(ordered_types), num_questions)]
-    num_sections = len(active_types)
 
-    # 1. Distribute questions across sections
-    base_q = num_questions // num_sections
-    rem_q = num_questions % num_sections
-    section_q_counts = [base_q + (1 if i < rem_q else 0) for i in range(num_sections)]
+    # Solve optimal section distribution
+    section_q_counts, allocated_marks = _solve_blueprint_partition(
+        num_questions=num_questions,
+        total_marks=total_marks,
+        active_types=active_types,
+    )
 
-    # 2. Distribute marks across sections
-    allocated_marks = [q_cnt for q_cnt in section_q_counts]
-    remaining_marks = total_marks - num_questions
-
-    # Desired additional marks per question beyond 1
-    desired_extra = {
-        QuestionType.MULTIPLE_CHOICE: 0,
-        QuestionType.SHORT_ANSWER: 1,
-        QuestionType.LONG_ANSWER: 3,
-    }
-
-    # Pass 1: Try to satisfy desired weights from Long to Short to MCQ
-    for pass_qt in [QuestionType.LONG_ANSWER, QuestionType.SHORT_ANSWER, QuestionType.MULTIPLE_CHOICE]:
-        for idx, qt in enumerate(active_types):
-            if qt == pass_qt and remaining_marks > 0:
-                needed = desired_extra.get(qt, 0) * section_q_counts[idx]
-                give = min(needed, remaining_marks)
-                allocated_marks[idx] += give
-                remaining_marks -= give
-
-    # Pass 2: If remaining_marks still > 0, distribute to Long, then Short, then MCQ
-    while remaining_marks > 0:
-        distributed = False
-        for pass_qt in [QuestionType.LONG_ANSWER, QuestionType.SHORT_ANSWER, QuestionType.MULTIPLE_CHOICE]:
-            for idx, qt in enumerate(active_types):
-                if qt == pass_qt and remaining_marks > 0:
-                    allocated_marks[idx] += 1
-                    remaining_marks -= 1
-                    distributed = True
-                    break
-            if distributed:
-                break
-
-    # Build SectionBlueprint objects
     section_names = ["A", "B", "C", "D", "E"]
     title_map = {
         QuestionType.MULTIPLE_CHOICE: "Multiple Choice Questions",
         QuestionType.SHORT_ANSWER: "Short Answer Questions",
-        QuestionType.LONG_ANSWER: "Long Answer Questions",
+        QuestionType.LONG_ANSWER: "Long Answer / Problem Solving Questions",
+    }
+    instruction_map = {
+        QuestionType.MULTIPLE_CHOICE: (
+            "Choose the correct answer from the four options given for each question "
+            "and write the letter of the correct option in the space provided."
+        ),
+        QuestionType.SHORT_ANSWER: (
+            "Answer the following questions by showing necessary steps and calculations."
+        ),
+        QuestionType.LONG_ANSWER: (
+            "Solve the following word problems and show all calculation steps clearly."
+        ),
     }
 
     sections = []
@@ -483,6 +572,7 @@ def create_default_blueprint(
                 marks_distribution=dist,
                 difficulty=overall_difficulty,
                 topics=[topic] if topic else None,
+                instructions=instruction_map.get(qt),
             )
         )
 
@@ -677,6 +767,8 @@ class PaperSection(BaseModel):
     question_type: QuestionType = Field(..., description="Type of questions in this section")
     num_questions: int = Field(..., gt=0)
     section_marks: int = Field(..., gt=0)
+    marks_per_question: Optional[int] = Field(default=None, description="Uniform marks per question if applicable")
+    instructions: Optional[str] = Field(default=None, description="Section-specific student instructions")
     questions: list[Question] = Field(default_factory=list)
 
 

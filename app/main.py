@@ -634,9 +634,12 @@ def generate_paper(request: PaperGenerateRequest):
     """
     target_doc, passages, forbidden_units = resolve_curriculum_and_passages(request)
 
+    # Pre-generate the structured examination blueprint
+    blueprint = request.get_or_create_blueprint()
+
     # Generate questions with Gemini
     try:
-        questions = generate_questions(request, passages)
+        questions = generate_questions(request, passages, blueprint=blueprint)
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
@@ -655,7 +658,6 @@ def generate_paper(request: PaperGenerateRequest):
 
     # Assemble and save the paper
     try:
-        blueprint = request.get_or_create_blueprint()
         paper = assemble_paper(
             request=request,
             questions=questions,

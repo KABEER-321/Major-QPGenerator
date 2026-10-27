@@ -6,6 +6,7 @@
 import json
 import logging
 import uuid
+from typing import Optional
 
 from langchain_core.documents import Document
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -197,34 +198,198 @@ def _extract_text(content: object) -> str:
     return str(content).strip()
 
 
+def _generate_section_questions(
+    sec: "SectionBlueprint",
+    request: PaperGenerateRequest,
+    passages: list[Document],
+    existing_questions: list[Question],
+    source_refs: list[SourceReference],
+    llm,
+) -> list[Question]:
+    """
+    Generate questions for a single section according to its blueprint.
+    Guarantees question count, question type, exact marks per question,
+    SymPy mathematical validation, and uniqueness.
+    """
+    passage_text = "\n---\n".join(
+        f"[Passage {i+1} from {doc.metadata.get('source', 'unknown')}]\n{doc.page_content}"
+        for i, doc in enumerate(passages)
+    )
+
+    academic_class = format_grade_display(request.academic_grade or request.grade)
+    curriculum_class = format_grade_display(request.curriculum_grade or request.grade)
+    scope_str = request.syllabus_scope or request.topic
+    exam_type = request.exam_type or ExamType.FINAL
+
+    if exam_type == ExamType.PREREQUISITE:
+        exam_header = f"""EXAMINATION TYPE: Prerequisite Examination
+- Academic Class of Students: {academic_class}
+- Curriculum Class Used: {curriculum_class}
+- Permitted Syllabus Topics: {scope_str}
+- Focus: Assess fundamental concepts from the previous class."""
+    elif exam_type == ExamType.MIDTERM:
+        exam_header = f"""EXAMINATION TYPE: Mid-Semester Examination
+- Academic Class: {academic_class}
+- Permitted Scope: {scope_str} (First Half of Syllabus Only)
+- STRICT PROHIBITION: Do NOT generate questions outside this mid-semester scope."""
+    else:
+        exam_header = f"""EXAMINATION TYPE: Final Examination
+- Academic Class: {academic_class}
+- Scope: {scope_str} (Full Syllabus)"""
+
+    marks_dist = sec.get_marks_distribution()
+    needed = sec.num_questions
+    sec_difficulty = sec.difficulty or request.difficulty or Difficulty.MEDIUM
+
+    human_prompt = f"""Generate questions for Section '{sec.section_id}' ({sec.title}):
+
+{exam_header}
+- Grade/Class: {academic_class}
+- Subject: {request.subject}
+- Question Type: {sec.question_type.value} (ALL questions in this section MUST be of this type)
+- Difficulty: {sec_difficulty.value}
+- Total questions needed in this section: {needed}
+- Marks per question: {marks_dist} (total section marks: {sec.section_marks})
+
+SECTION-SPECIFIC INSTRUCTIONS:
+1. Every question MUST be of type "{sec.question_type.value}".
+{"2. For multiple_choice questions, provide exactly 4 clear options (A, B, C, D) and identify the correct_option matching one of them." if sec.question_type == QuestionType.MULTIPLE_CHOICE else "2. Provide complete, clear worked solutions and marking steps."}
+3. DIVERSITY REQUIREMENT: Cover different chapters/concepts across the reference passages (e.g. arithmetic, geometry/shapes, measurement, time/money, patterns, word problems). Do NOT generate repetitive questions with just different numbers.
+4. AGE APPROPRIATENESS: Strictly suitable for primary school students in {academic_class}.
+5. Ground all questions directly in the REFERENCE PASSAGES below.
+
+REFERENCE PASSAGES:
+{passage_text}
+
+Return ONLY a JSON array of {needed} question objects."""
+
+    messages = [
+        SystemMessage(content=SYSTEM_PROMPT),
+        HumanMessage(content=human_prompt),
+    ]
+
+    sec_questions: list[Question] = []
+    last_err: Exception | None = None
+
+    for attempt in range(1, settings.MAX_RETRIES + 2):
+        try:
+            response = llm.invoke(messages)
+            raw_text = _extract_text(response.content)
+
+            if raw_text.startswith("```"):
+                first_nl = raw_text.index("\n")
+                raw_text = raw_text[first_nl + 1 :]
+            if raw_text.endswith("```"):
+                raw_text = raw_text[:-3].strip()
+
+            questions_data = json.loads(raw_text)
+            if not isinstance(questions_data, list):
+                raise ValueError("Expected a JSON array of questions.")
+
+            for q_dict in questions_data:
+                if len(sec_questions) >= needed:
+                    break
+                try:
+                    target_mark = (
+                        marks_dist[len(sec_questions)]
+                        if len(sec_questions) < len(marks_dist)
+                        else marks_dist[-1]
+                    )
+                    q_dict["question_type"] = sec.question_type.value
+                    q_dict["marks"] = target_mark
+
+                    q = Question.model_validate(q_dict)
+                    _enrich_question(q, request, source_refs)
+
+                    # SymPy verification
+                    if q.math_verification and q.math_verification.status == MathCheckStatus.DISCREPANCY:
+                        logger.warning("Rejecting question with math discrepancy: '%s'", q.question_text)
+                        continue
+
+                    # Deduplication
+                    is_dup, _ = is_duplicate(q, existing_questions + sec_questions)
+                    if is_dup:
+                        logger.warning("Rejecting duplicate question: '%s'", q.question_text)
+                        continue
+
+                    sec_questions.append(q)
+                except Exception as val_err:
+                    logger.debug("Skipping invalid question in section %s: %s", sec.section_id, val_err)
+                    continue
+
+            if len(sec_questions) >= needed:
+                break
+
+            deficit = needed - len(sec_questions)
+            if attempt <= settings.MAX_RETRIES:
+                messages.append(
+                    HumanMessage(
+                        content=(
+                            f"We still need {deficit} more valid, distinct questions of type '{sec.question_type.value}' "
+                            f"for {sec.title}. Please provide {deficit + 1} additional unique questions."
+                        )
+                    )
+                )
+        except Exception as e:
+            last_err = e
+            logger.warning("Attempt %d for section %s failed: %s", attempt, sec.section_id, e)
+            if attempt <= settings.MAX_RETRIES:
+                messages.append(
+                    HumanMessage(content=f"Previous attempt error: {e}. Return ONLY a valid JSON array.")
+                )
+
+    if len(sec_questions) < needed:
+        raise RuntimeError(
+            f"Failed to generate {needed} valid questions for Section '{sec.section_id}'. "
+            f"Obtained {len(sec_questions)} valid questions. Last error: {last_err}"
+        )
+
+    return sec_questions[:needed]
+
+
 def generate_questions(
     request: PaperGenerateRequest,
     passages: list[Document],
+    blueprint: Optional[ExamBlueprint] = None,
 ) -> list[Question]:
     """
     Call Gemini to generate questions and validate them with Pydantic and SymPy.
     Enforces that candidate questions have no mathematical discrepancies and are unique.
-    Retries up to MAX_RETRIES times if Gemini returns invalid output.
+    Generates section-by-section according to the blueprint.
     """
+    blueprint = blueprint or request.get_or_create_blueprint()
     llm = get_llm()
+    source_refs = _build_source_references(passages)
 
+    # If blueprint has defined sections, generate section by section
+    if blueprint and blueprint.sections:
+        all_questions: list[Question] = []
+        for sec in blueprint.sections:
+            sec_qs = _generate_section_questions(
+                sec=sec,
+                request=request,
+                passages=passages,
+                existing_questions=all_questions,
+                source_refs=source_refs,
+                llm=llm,
+            )
+            all_questions.extend(sec_qs)
+        return all_questions
+
+    # Fallback to single-prompt generation if no sections
     messages = [
         SystemMessage(content=SYSTEM_PROMPT),
         HumanMessage(content=_build_human_prompt(request, passages)),
     ]
 
-    # Pre-build source references from the retrieved passages
-    source_refs = _build_source_references(passages)
-
     last_error: Exception | None = None
 
-    for attempt in range(1, settings.MAX_RETRIES + 2):  # +2 so we get MAX_RETRIES retries
+    for attempt in range(1, settings.MAX_RETRIES + 2):
         logger.info("Generation attempt %d / %d", attempt, settings.MAX_RETRIES + 1)
         try:
             response = llm.invoke(messages)
             raw_text = _extract_text(response.content)
 
-            # Strip markdown code fences if Gemini wraps the JSON
             if raw_text.startswith("```"):
                 first_newline = raw_text.index("\n")
                 raw_text = raw_text[first_newline + 1 :]
@@ -232,19 +397,14 @@ def generate_questions(
                 raw_text = raw_text[:-3].strip()
 
             questions_data = json.loads(raw_text)
-
             if not isinstance(questions_data, list):
                 raise ValueError("Expected a JSON array of questions.")
 
-            # Validate each question through Pydantic
             questions = [Question.model_validate(q) for q in questions_data]
-
-            # Enrich each question with identity, context, and traceability
             questions = [
                 _enrich_question(q, request, source_refs) for q in questions
             ]
 
-            # Reject mathematically invalid questions (SymPy DISCREPANCY)
             discrepancies = [
                 q for q in questions
                 if q.math_verification and q.math_verification.status == MathCheckStatus.DISCREPANCY
@@ -256,18 +416,15 @@ def generate_questions(
                     f"({bad_q.math_verification.details if bad_q.math_verification else ''})"
                 )
 
-            # Check within-paper duplicates
             unique_qs, rejected_dups = deduplicate_candidates(questions)
             if rejected_dups > 0:
                 raise ValueError(f"Generated questions contained {rejected_dups} duplicate or near-duplicate questions.")
 
-            # Check count
             if len(questions) != request.num_questions:
                 raise ValueError(
                     f"Requested {request.num_questions} questions but got {len(questions)}."
                 )
 
-            # Check total marks
             actual_marks = sum(q.marks for q in questions)
             if actual_marks != request.total_marks:
                 raise ValueError(
@@ -279,7 +436,6 @@ def generate_questions(
         except Exception as e:
             last_error = e
             logger.warning("Attempt %d failed: %s", attempt, e)
-            # On retry, add error feedback to help Gemini fix its output
             if attempt <= settings.MAX_RETRIES:
                 messages.append(
                     HumanMessage(
