@@ -3,34 +3,56 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>QPGen — AI Mathematics Question Paper Generator</title>
-  <meta name="description" content="Curriculum-aligned mathematics question paper generator grounded in your uploaded syllabus using Google Gemini and FAISS.">
+  <title>QPGen — Curriculum-Aligned Mathematics Question Paper Generator</title>
+  <meta name="description" content="Professional AI-powered mathematics question paper generator grounded in official state curriculum textbooks using Google Gemini and FAISS.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg-base: #0a0e17;
-      --bg-surface: #111827;
-      --bg-elevated: #1a2234;
-      --bg-glass: rgba(26, 34, 52, 0.75);
-      --border-subtle: rgba(255, 255, 255, 0.08);
-      --border-accent: rgba(99, 102, 241, 0.3);
-      --text-main: #f8fafc;
-      --text-muted: #94a3b8;
-      --text-dim: #64748b;
-      --accent-primary: #6366f1;
-      --accent-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
-      --accent-cyan: #06b6d4;
-      --accent-emerald: #10b981;
-      --accent-amber: #f59e0b;
-      --accent-rose: #f43f5e;
-      --radius-sm: 8px;
-      --radius-md: 12px;
-      --radius-lg: 18px;
-      --radius-xl: 24px;
-      --shadow-soft: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
-      --shadow-glow: 0 0 25px rgba(99, 102, 241, 0.25);
+      /* SaaS Light-Neutral Color System */
+      --bg-page: #f8fafc;
+      --bg-surface: #ffffff;
+      --bg-subtle: #f1f5f9;
+      --bg-muted: #e2e8f0;
+      
+      --border-light: #e2e8f0;
+      --border-medium: #cbd5e1;
+      --border-dark: #94a3b8;
+      
+      --text-primary: #0f172a;
+      --text-secondary: #334155;
+      --text-muted: #64748b;
+      --text-dim: #94a3b8;
+      
+      /* Primary Educational Sapphire Accent */
+      --accent-primary: #1d4ed8;
+      --accent-hover: #1e40af;
+      --accent-active: #1e3a8a;
+      --accent-subtle: #eff6ff;
+      --accent-border: #bfdbfe;
+      
+      /* Status & Utility Accents */
+      --success-text: #047857;
+      --success-bg: #ecfdf5;
+      --success-border: #a7f3d0;
+      
+      --warning-text: #b45309;
+      --warning-bg: #fffbeb;
+      --warning-border: #fde68a;
+      
+      --danger-text: #b91c1c;
+      --danger-bg: #fef2f2;
+      --danger-border: #fecaca;
+      
+      /* Geometry & Elevation */
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.06), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+      --shadow-paper: 0 1px 3px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.05);
     }
 
     * {
@@ -40,919 +62,1305 @@
     }
 
     body {
-      background: var(--bg-base);
-      color: var(--text-main);
-      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg-page);
+      color: var(--text-primary);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       line-height: 1.5;
       min-height: 100vh;
-      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
 
-    /* Ambient background gradient glow */
-    .ambient-glow {
-      position: fixed;
-      top: -200px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 800px;
-      height: 400px;
-      background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, rgba(236, 72, 153, 0.05) 50%, transparent 70%);
-      pointer-events: none;
-      z-index: 0;
-      filter: blur(60px);
-    }
-
-    .app-container {
-      position: relative;
-      z-index: 1;
-      max-width: 1400px;
+    /* App Container */
+    .app-wrapper {
+      max-width: 1440px;
       margin: 0 auto;
-      padding: 24px 32px 64px 32px;
+      padding: 0 24px 64px 24px;
     }
 
-    /* Header */
-    header {
+    /* Top Navigation Bar */
+    header.app-header {
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-light);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      margin-bottom: 24px;
+    }
+
+    .header-inner {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 14px 24px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding-bottom: 24px;
-      margin-bottom: 24px;
-      border-bottom: 1px solid var(--border-subtle);
+      gap: 16px;
     }
 
-    .brand {
+    .brand-group {
       display: flex;
       align-items: center;
       gap: 14px;
     }
 
-    .logo-badge {
-      width: 44px;
-      height: 44px;
-      border-radius: var(--radius-md);
-      background: var(--accent-gradient);
+    .brand-icon {
+      width: 40px;
+      height: 40px;
+      background: var(--accent-primary);
+      color: #ffffff;
+      border-radius: var(--radius-sm);
       display: flex;
       align-items: center;
       justify-content: center;
       font-weight: 800;
-      font-size: 20px;
-      box-shadow: var(--shadow-glow);
+      font-size: 18px;
+      letter-spacing: -0.03em;
+      box-shadow: 0 2px 4px rgba(29, 78, 216, 0.25);
     }
 
     .brand-text h1 {
-      font-size: 20px;
+      font-size: 18px;
       font-weight: 700;
+      color: var(--text-primary);
       letter-spacing: -0.02em;
       display: flex;
       align-items: center;
       gap: 8px;
     }
 
-    .brand-text p {
-      font-size: 13px;
-      color: var(--text-muted);
+    .version-tag {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-light);
+      color: var(--text-secondary);
     }
 
-    .header-links {
+    .brand-text p {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    .header-actions {
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 10px;
     }
 
-    .status-badge {
+    .status-indicator {
       display: inline-flex;
       align-items: center;
       gap: 6px;
       font-size: 12px;
-      font-weight: 600;
-      padding: 6px 12px;
+      font-weight: 500;
+      padding: 5px 12px;
       border-radius: 999px;
-      background: rgba(16, 185, 129, 0.1);
-      border: 1px solid rgba(16, 185, 129, 0.25);
-      color: #34d399;
+      background: var(--success-bg);
+      border: 1px solid var(--success-border);
+      color: var(--success-text);
     }
 
     .status-dot {
       width: 7px;
       height: 7px;
       border-radius: 50%;
-      background: #10b981;
-      box-shadow: 0 0 8px #10b981;
+      background: var(--success-text);
     }
 
-    .btn-link {
+    .btn-header {
       display: inline-flex;
       align-items: center;
       gap: 6px;
       font-size: 13px;
       font-weight: 600;
-      color: var(--text-muted);
+      color: var(--text-secondary);
+      background: var(--bg-surface);
+      border: 1px solid var(--border-medium);
+      padding: 7px 14px;
+      border-radius: var(--radius-sm);
       text-decoration: none;
-      padding: 8px 14px;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-subtle);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn-header:hover {
+      background: var(--bg-subtle);
+      color: var(--text-primary);
+      border-color: var(--border-dark);
+    }
+
+    /* Curriculum Status Strip */
+    .curriculum-strip-card {
       background: var(--bg-surface);
-      transition: all 0.2s ease;
-    }
-
-    .btn-link:hover {
-      color: var(--text-main);
-      border-color: var(--accent-primary);
-      transform: translateY(-1px);
-    }
-
-    /* Main Grid */
-    .main-grid {
-      display: grid;
-      grid-template-columns: 460px 1fr;
-      gap: 28px;
-      align-items: start;
-    }
-
-    /* Cards */
-    .card {
-      background: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-lg);
-      padding: 24px;
-      box-shadow: var(--shadow-soft);
-      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-md);
+      padding: 16px 20px;
       margin-bottom: 24px;
+      box-shadow: var(--shadow-sm);
     }
 
-    .card-title {
-      font-size: 16px;
-      font-weight: 700;
-      margin-bottom: 16px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .step-num {
-      width: 24px;
-      height: 24px;
-      border-radius: 50%;
-      background: var(--accent-primary);
-      color: white;
-      font-size: 12px;
-      font-weight: 700;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    /* File Upload Box */
-    .drop-zone {
-      border: 2px dashed rgba(99, 102, 241, 0.35);
-      border-radius: var(--radius-md);
-      padding: 28px 20px;
-      text-align: center;
-      cursor: pointer;
-      background: rgba(99, 102, 241, 0.03);
-      transition: all 0.25s ease;
-      position: relative;
-    }
-
-    .drop-zone:hover, .drop-zone.dragover {
-      border-color: var(--accent-primary);
-      background: rgba(99, 102, 241, 0.08);
-      transform: scale(1.01);
-    }
-
-    .drop-zone input[type="file"] {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      opacity: 0;
-      cursor: pointer;
-    }
-
-    .upload-icon {
-      width: 48px;
-      height: 48px;
-      margin: 0 auto 12px auto;
-      border-radius: 50%;
-      background: rgba(99, 102, 241, 0.15);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--accent-primary);
-      font-size: 22px;
-    }
-
-    /* Documents List */
-    .doc-list {
-      margin-top: 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      max-height: 230px;
-      overflow-y: auto;
-    }
-
-    .doc-item {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 12px 14px;
-      background: var(--bg-elevated);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-md);
-      cursor: pointer;
-      transition: all 0.2s ease;
-    }
-
-    .doc-item:hover {
-      border-color: var(--border-accent);
-      background: rgba(99, 102, 241, 0.06);
-    }
-
-    .doc-item.selected {
-      border-color: var(--accent-primary);
-      background: rgba(99, 102, 241, 0.12);
-      box-shadow: 0 0 12px rgba(99, 102, 241, 0.2);
-    }
-
-    .doc-meta {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-
-    .doc-name {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text-main);
-    }
-
-    .doc-badges {
-      font-size: 11px;
-      color: var(--text-dim);
-      display: flex;
-      gap: 8px;
-    }
-
-    .doc-del-btn {
-      background: transparent;
-      border: none;
-      color: var(--text-dim);
-      cursor: pointer;
-      padding: 6px;
-      border-radius: 4px;
-      transition: color 0.2s;
-    }
-
-    .doc-del-btn:hover {
-      color: var(--accent-rose);
-      background: rgba(244, 63, 94, 0.1);
-    }
-
-    /* Form Inputs */
-    .form-group {
-      margin-bottom: 16px;
-    }
-
-    label {
-      display: block;
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--text-muted);
-      margin-bottom: 6px;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-
-    input[type="text"], input[type="number"], select {
-      width: 100%;
-      background: var(--bg-elevated);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-sm);
-      padding: 10px 14px;
-      font-size: 14px;
-      color: var(--text-main);
-      font-family: inherit;
-      outline: none;
-      transition: border-color 0.2s, box-shadow 0.2s;
-    }
-
-    input[type="text"]:focus, input[type="number"]:focus, select:focus {
-      border-color: var(--accent-primary);
-      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
-    }
-
-    .form-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 14px;
-    }
-
-    /* Difficulty Pills */
-    .pill-group {
-      display: flex;
-      gap: 8px;
-    }
-
-    .pill-btn {
-      flex: 1;
-      padding: 8px 12px;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-subtle);
-      background: var(--bg-elevated);
-      color: var(--text-muted);
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s;
-      text-align: center;
-    }
-
-    .pill-btn.active {
-      background: var(--accent-primary);
-      border-color: var(--accent-primary);
-      color: white;
-      box-shadow: 0 0 10px rgba(99, 102, 241, 0.35);
-    }
-
-    /* Question types */
-    .checkbox-group {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .checkbox-label {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 13px;
-      color: var(--text-main);
-      cursor: pointer;
-      text-transform: none;
-      font-weight: 500;
-    }
-
-    .checkbox-label input {
-      accent-color: var(--accent-primary);
-      width: 16px;
-      height: 16px;
-    }
-
-    /* Primary Generate Button */
-    .btn-generate {
-      width: 100%;
-      padding: 14px 20px;
-      border: none;
-      border-radius: var(--radius-md);
-      background: var(--accent-gradient);
-      color: white;
-      font-size: 15px;
-      font-weight: 700;
-      letter-spacing: -0.01em;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      box-shadow: var(--shadow-glow);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-    }
-
-    .btn-generate:hover:not(:disabled) {
-      transform: translateY(-2px);
-      box-shadow: 0 0 35px rgba(99, 102, 241, 0.45);
-    }
-
-    .btn-generate:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-    }
-
-    /* Output / Right Section */
-    .preview-container {
-      background: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-lg);
-      padding: 28px;
-      min-height: 600px;
-    }
-
-    .preview-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      margin-bottom: 20px;
-      padding-bottom: 18px;
-      border-bottom: 1px solid var(--border-subtle);
-    }
-
-    .preview-title h2 {
-      font-size: 20px;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-      margin-bottom: 4px;
-    }
-
-    .preview-badges {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 6px;
-    }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      font-size: 11px;
-      font-weight: 600;
-      padding: 4px 10px;
-      border-radius: 999px;
-      background: var(--bg-elevated);
-      border: 1px solid var(--border-subtle);
-      color: var(--text-muted);
-    }
-
-    .badge.purple {
-      background: rgba(99, 102, 241, 0.15);
-      border-color: rgba(99, 102, 241, 0.3);
-      color: #a5b4fc;
-    }
-
-    .badge.green {
-      background: rgba(16, 185, 129, 0.15);
-      border-color: rgba(16, 185, 129, 0.3);
-      color: #6ee7b7;
-    }
-
-    .badge.amber {
-      background: rgba(245, 158, 11, 0.15);
-      border-color: rgba(245, 158, 11, 0.3);
-      color: #fcd34d;
-    }
-
-    .export-actions {
-      display: flex;
-      gap: 10px;
-    }
-
-    .btn-export {
-      padding: 9px 16px;
-      border-radius: var(--radius-sm);
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      text-decoration: none;
-      transition: all 0.2s;
-    }
-
-    .btn-export.primary {
-      background: var(--accent-primary);
-      border: 1px solid var(--accent-primary);
-      color: white;
-    }
-
-    .btn-export.primary:hover {
-      background: #4f46e5;
-      transform: translateY(-1px);
-    }
-
-    .btn-export.secondary {
-      background: var(--bg-elevated);
-      border: 1px solid var(--border-subtle);
-      color: var(--text-main);
-    }
-
-    .btn-export.secondary:hover {
-      border-color: var(--accent-primary);
-      transform: translateY(-1px);
-    }
-
-    /* Tabs */
-    .view-tabs {
-      display: flex;
-      gap: 8px;
-      background: var(--bg-elevated);
-      padding: 4px;
-      border-radius: var(--radius-md);
-      margin-bottom: 24px;
-      width: fit-content;
-    }
-
-    .tab-btn {
-      padding: 8px 18px;
-      border-radius: var(--radius-sm);
-      border: none;
-      background: transparent;
-      color: var(--text-muted);
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .tab-btn.active {
-      background: var(--bg-surface);
-      color: var(--text-main);
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-    }
-
-    /* Question Cards */
-    .question-list {
-      display: flex;
-      flex-direction: column;
-      gap: 20px;
-    }
-
-    .question-card {
-      background: var(--bg-elevated);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-md);
-      padding: 20px;
-      transition: border-color 0.2s;
-    }
-
-    .question-card:hover {
-      border-color: rgba(99, 102, 241, 0.25);
-    }
-
-    .question-card-head {
+    .curriculum-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
       margin-bottom: 12px;
     }
 
-    .q-number {
-      font-weight: 700;
-      font-size: 14px;
-      color: var(--text-main);
+    .curriculum-title-wrap {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
     }
 
-    .q-text {
-      font-size: 15px;
-      line-height: 1.6;
-      color: var(--text-main);
-      margin-bottom: 14px;
-      font-weight: 500;
-    }
-
-    /* Options Grid */
-    .options-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-      margin-bottom: 14px;
-    }
-
-    .option-item {
-      padding: 8px 14px;
-      background: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
+    .curriculum-icon-badge {
+      width: 28px;
+      height: 28px;
       border-radius: var(--radius-sm);
-      font-size: 13px;
+      background: var(--accent-subtle);
+      color: var(--accent-primary);
       display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .option-item.correct {
-      border-color: rgba(16, 185, 129, 0.4);
-      background: rgba(16, 185, 129, 0.08);
-      color: #6ee7b7;
-      font-weight: 600;
-    }
-
-    /* Solution Box */
-    .solution-box {
-      margin-top: 14px;
-      padding: 12px 16px;
-      border-radius: var(--radius-sm);
-      background: rgba(99, 102, 241, 0.06);
-      border-left: 3px solid var(--accent-primary);
-      font-size: 13px;
-    }
-
-    .solution-title {
-      font-weight: 700;
-      color: #a5b4fc;
-      margin-bottom: 4px;
-    }
-
-    /* Grounding & Verification Footers */
-    .q-grounding {
-      margin-top: 12px;
-      padding-top: 10px;
-      border-top: 1px dashed var(--border-subtle);
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      font-size: 12px;
-      color: var(--text-dim);
-    }
-
-    .grounding-tag {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-weight: 600;
-      color: var(--accent-cyan);
-    }
-
-    .math-check-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 11px;
-      font-weight: 600;
-      padding: 3px 8px;
-      border-radius: 4px;
-      width: fit-content;
-    }
-
-    .math-check-badge.verified {
-      background: rgba(16, 185, 129, 0.15);
-      color: #34d399;
-      border: 1px solid rgba(16, 185, 129, 0.3);
-    }
-
-    .math-check-badge.unsupported {
-      background: rgba(100, 116, 139, 0.15);
-      color: #94a3b8;
-    }
-
-    .math-check-badge.discrepancy {
-      background: rgba(244, 63, 94, 0.15);
-      color: #f87171;
-      border: 1px solid rgba(244, 63, 94, 0.3);
-    }
-
-    /* Empty state */
-    .empty-state {
-      display: flex;
-      flex-direction: column;
       align-items: center;
       justify-content: center;
-      text-align: center;
-      min-height: 480px;
-      color: var(--text-dim);
+      font-size: 14px;
     }
 
-    .empty-icon {
-      font-size: 48px;
-      margin-bottom: 16px;
-      opacity: 0.6;
-    }
-
-    .empty-title {
-      font-size: 18px;
+    .curriculum-title {
+      font-size: 14px;
       font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .curriculum-subtitle {
+      font-size: 12px;
       color: var(--text-muted);
+      margin-left: 6px;
+    }
+
+    .curriculum-classes-row {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+    }
+
+    .class-status-pill {
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      transition: all 0.15s ease;
+    }
+
+    .class-status-pill:hover {
+      border-color: var(--border-medium);
+      background: #ffffff;
+    }
+
+    .class-pill-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .class-name-label {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .class-meta-label {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .pill-badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 4px;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .pill-badge.ready {
+      background: var(--success-bg);
+      color: var(--success-text);
+      border: 1px solid var(--success-border);
+    }
+
+    .pill-badge.missing {
+      background: var(--danger-bg);
+      color: var(--danger-text);
+      border: 1px solid var(--danger-border);
+    }
+
+    /* Main Workspace Grid */
+    .workspace-grid {
+      display: grid;
+      grid-template-columns: 420px 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+
+    /* Panel Card */
+    .panel-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .panel-header {
+      padding: 18px 20px 14px 20px;
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    .panel-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .panel-subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .panel-body {
+      padding: 20px;
+    }
+
+    /* Form Styles */
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-group:last-child {
+      margin-bottom: 0;
+    }
+
+    label.field-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
       margin-bottom: 6px;
     }
 
+    select.form-control,
+    input[type="text"].form-control,
+    input[type="number"].form-control {
+      width: 100%;
+      background: #ffffff;
+      border: 1px solid var(--border-medium);
+      border-radius: var(--radius-sm);
+      padding: 9px 12px;
+      font-size: 13px;
+      color: var(--text-primary);
+      font-family: inherit;
+      outline: none;
+      transition: all 0.15s ease;
+    }
+
+    select.form-control:focus,
+    input[type="text"].form-control:focus,
+    input[type="number"].form-control:focus {
+      border-color: var(--accent-primary);
+      box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.12);
+    }
+
+    .form-row-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    /* Scope Guidance Box */
+    .scope-callout {
+      margin-top: 8px;
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      background: var(--accent-subtle);
+      border: 1px solid var(--accent-border);
+      font-size: 12px;
+      line-height: 1.45;
+      color: var(--text-secondary);
+    }
+
+    .scope-callout strong {
+      color: var(--accent-primary);
+    }
+
+    /* Segmented Difficulty Pills */
+    .segmented-control {
+      display: flex;
+      background: var(--bg-subtle);
+      padding: 3px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-light);
+      gap: 2px;
+    }
+
+    .segmented-btn {
+      flex: 1;
+      padding: 6px 10px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 600;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      text-align: center;
+    }
+
+    .segmented-btn:hover {
+      color: var(--text-primary);
+    }
+
+    .segmented-btn.active {
+      background: #ffffff;
+      color: var(--accent-primary);
+      box-shadow: var(--shadow-sm);
+      font-weight: 700;
+    }
+
+    /* Checkbox Group */
+    .checkbox-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      background: var(--bg-subtle);
+      padding: 12px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-light);
+    }
+
+    .checkbox-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-weight: 500;
+      user-select: none;
+    }
+
+    .checkbox-item input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent-primary);
+      cursor: pointer;
+    }
+
+    /* Primary Generate Button */
+    .btn-generate-solid {
+      width: 100%;
+      margin-top: 18px;
+      padding: 12px 18px;
+      border: none;
+      border-radius: var(--radius-sm);
+      background: var(--accent-primary);
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      cursor: pointer;
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.15s ease;
+    }
+
+    .btn-generate-solid:hover:not(:disabled) {
+      background: var(--accent-hover);
+      box-shadow: var(--shadow-md);
+    }
+
+    .btn-generate-solid:active:not(:disabled) {
+      background: var(--accent-active);
+    }
+
+    .btn-generate-solid:disabled {
+      background: var(--border-medium);
+      color: var(--text-muted);
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
     /* Spinner */
-    .spinner {
-      width: 18px;
-      height: 18px;
-      border: 2px solid rgba(255, 255, 255, 0.3);
+    .spinner-sm {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255, 255, 255, 0.4);
+      border-top-color: #ffffff;
       border-radius: 50%;
-      border-top-color: white;
-      animation: spin 0.8s linear infinite;
+      animation: spin 0.75s linear infinite;
     }
 
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
 
-    /* Toast */
-    .toast {
+    /* Results Column & Formal Exam Paper */
+    .results-panel {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-sm);
+      min-height: 640px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Empty State */
+    .empty-placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 64px 32px;
+      margin: auto;
+      max-width: 480px;
+    }
+
+    .empty-symbol {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-medium);
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      margin-bottom: 16px;
+    }
+
+    .empty-heading {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: 6px;
+    }
+
+    .empty-caption {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* Active Paper Container */
+    .paper-active-wrap {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+    }
+
+    /* Paper Action Toolbar */
+    .paper-toolbar {
+      padding: 14px 20px;
+      background: #ffffff;
+      border-bottom: 1px solid var(--border-light);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      border-top-left-radius: var(--radius-md);
+      border-top-right-radius: var(--radius-md);
+    }
+
+    /* View Switch Tabs */
+    .view-segmented-wrap {
+      display: flex;
+      background: var(--bg-subtle);
+      padding: 3px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-light);
+      gap: 2px;
+    }
+
+    .view-tab-btn {
+      padding: 6px 14px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 600;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .view-tab-btn.active {
+      background: #ffffff;
+      color: var(--accent-primary);
+      box-shadow: var(--shadow-sm);
+      font-weight: 700;
+    }
+
+    /* Export Action Buttons */
+    .export-btn-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-pdf-action {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: var(--radius-sm);
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn-pdf-action.primary {
+      background: var(--accent-primary);
+      color: #ffffff;
+      border: 1px solid var(--accent-primary);
+    }
+
+    .btn-pdf-action.primary:hover {
+      background: var(--accent-hover);
+    }
+
+    .btn-pdf-action.outline {
+      background: #ffffff;
+      color: var(--text-secondary);
+      border: 1px solid var(--border-medium);
+    }
+
+    .btn-pdf-action.outline:hover {
+      background: var(--bg-subtle);
+      color: var(--text-primary);
+      border-color: var(--border-dark);
+    }
+
+    /* Formal Assessment Document Sheet */
+    .paper-sheet-container {
+      padding: 24px;
+      background: var(--bg-subtle);
+      flex: 1;
+    }
+
+    .formal-exam-document {
+      background: #ffffff;
+      border: 1px solid var(--border-medium);
+      border-radius: var(--radius-sm);
+      padding: 36px 40px;
+      box-shadow: var(--shadow-paper);
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    /* Formal Document Header */
+    .doc-institutional-header {
+      text-align: center;
+      border-bottom: 2px solid var(--text-primary);
+      padding-bottom: 16px;
+      margin-bottom: 20px;
+    }
+
+    .doc-exam-title {
+      font-size: 19px;
+      font-weight: 800;
+      color: var(--text-primary);
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      margin-bottom: 4px;
+    }
+
+    .doc-meta-table {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      font-size: 12px;
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border-light);
+      text-align: left;
+    }
+
+    .doc-meta-item strong {
+      color: var(--text-muted);
+      display: block;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .doc-meta-item span {
+      color: var(--text-primary);
+      font-weight: 600;
+      font-size: 12px;
+    }
+
+    /* Student Information Bar */
+    .student-info-bar {
+      border: 1px dashed var(--border-medium);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      font-size: 12px;
+      margin-bottom: 20px;
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr;
+      gap: 16px;
+      background: #ffffff;
+      color: var(--text-muted);
+    }
+
+    /* General Instructions */
+    .general-instructions-box {
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-bottom: 24px;
+      line-height: 1.45;
+    }
+
+    .general-instructions-box strong {
+      color: var(--text-primary);
+    }
+
+    /* Section Banner */
+    .section-banner {
+      background: var(--bg-subtle);
+      border-left: 4px solid var(--accent-primary);
+      border-top: 1px solid var(--border-light);
+      border-right: 1px solid var(--border-light);
+      border-bottom: 1px solid var(--border-light);
+      border-radius: var(--radius-sm);
+      padding: 12px 16px;
+      margin: 28px 0 16px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .section-banner-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .section-banner-marks {
+      font-size: 12px;
+      font-weight: 600;
+      background: #ffffff;
+      border: 1px solid var(--border-medium);
+      padding: 3px 8px;
+      border-radius: 4px;
+      color: var(--accent-primary);
+    }
+
+    .section-banner-instructions {
+      width: 100%;
+      font-size: 11px;
+      color: var(--text-muted);
+      font-style: italic;
+      margin-top: 2px;
+    }
+
+    /* Formal Question Card */
+    .formal-question-block {
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    .formal-question-block:last-child {
+      border-bottom: none;
+    }
+
+    .q-head-line {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 6px;
+    }
+
+    .q-number-bold {
+      font-weight: 700;
+      font-size: 13px;
+      color: var(--text-primary);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .q-type-pill {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-muted);
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-light);
+      padding: 1px 6px;
+      border-radius: 3px;
+      text-transform: uppercase;
+    }
+
+    .q-marks-tag {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-primary);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .q-body-text {
+      font-size: 13.5px;
+      line-height: 1.6;
+      color: var(--text-primary);
+      margin-bottom: 10px;
+    }
+
+    /* Formal Options Layout */
+    .formal-options-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 16px;
+      margin-bottom: 12px;
+    }
+
+    .formal-opt-box {
+      font-size: 13px;
+      padding: 6px 10px;
+      border-radius: 4px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-light);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-secondary);
+    }
+
+    .formal-opt-box.correct-teacher {
+      background: var(--success-bg);
+      border-color: var(--success-border);
+      color: var(--success-text);
+      font-weight: 600;
+    }
+
+    .opt-letter {
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    /* Student Workspace Lines */
+    .student-working-space {
+      margin-top: 10px;
+      border: 1px dashed var(--border-medium);
+      border-radius: 4px;
+      background: #fafafa;
+    }
+
+    .student-working-space.compact {
+      height: 70px;
+      display: flex;
+      align-items: flex-end;
+      padding: 6px 10px;
+    }
+
+    .student-working-space.large {
+      height: 120px;
+      display: flex;
+      align-items: flex-end;
+      padding: 6px 10px;
+    }
+
+    .workspace-watermark {
+      font-size: 11px;
+      color: var(--text-dim);
+      font-style: italic;
+    }
+
+    /* Teacher Solution Box */
+    .teacher-solution-panel {
+      margin-top: 12px;
+      padding: 12px 14px;
+      background: #f8fafc;
+      border: 1px solid var(--border-medium);
+      border-left: 3px solid var(--accent-primary);
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    .teacher-solution-title {
+      font-weight: 700;
+      color: var(--accent-primary);
+      text-transform: uppercase;
+      font-size: 10px;
+      letter-spacing: 0.03em;
+      margin-bottom: 4px;
+    }
+
+    .teacher-expected-ans {
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+    }
+
+    .teacher-step-text {
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    .grounding-tag-line {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px dashed var(--border-light);
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .sympy-verified-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      background: var(--success-bg);
+      border: 1px solid var(--success-border);
+      color: var(--success-text);
+      padding: 2px 6px;
+      border-radius: 3px;
+      margin-top: 6px;
+    }
+
+    /* Saved Papers Drawer / Modal */
+    .drawer-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(15, 23, 42, 0.4);
+      backdrop-filter: blur(2px);
+      z-index: 200;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .drawer-card {
+      background: #ffffff;
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-lg);
+      width: 90%;
+      max-width: 680px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .drawer-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-light);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .drawer-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .drawer-close-btn {
+      background: transparent;
+      border: none;
+      font-size: 18px;
+      cursor: pointer;
+      color: var(--text-muted);
+      padding: 4px;
+    }
+
+    .drawer-close-btn:hover {
+      color: var(--text-primary);
+    }
+
+    .drawer-body {
+      padding: 16px 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .saved-paper-row {
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all 0.15s ease;
+    }
+
+    .saved-paper-row:hover {
+      border-color: var(--accent-border);
+      background: var(--bg-subtle);
+    }
+
+    /* Toast Notification */
+    .toast-pill {
       position: fixed;
       bottom: 24px;
       right: 24px;
-      padding: 14px 20px;
-      border-radius: var(--radius-md);
-      background: var(--bg-elevated);
-      border: 1px solid var(--border-accent);
-      color: white;
-      box-shadow: var(--shadow-soft);
+      padding: 12px 18px;
+      border-radius: var(--radius-sm);
+      background: var(--text-primary);
+      color: #ffffff;
+      box-shadow: var(--shadow-lg);
       z-index: 1000;
-      font-size: 14px;
+      font-size: 13px;
+      font-weight: 500;
       display: none;
       align-items: center;
-      gap: 10px;
-      animation: slideUp 0.3s ease;
+      gap: 8px;
+      animation: slideUp 0.25s ease;
+    }
+
+    .toast-pill.error {
+      background: #b91c1c;
     }
 
     @keyframes slideUp {
-      from { transform: translateY(20px); opacity: 0; }
+      from { transform: translateY(16px); opacity: 0; }
       to { transform: translateY(0); opacity: 1; }
     }
 
-    @media (max-width: 1024px) {
-      .main-grid {
+    /* Responsive Breakpoints */
+    @media (max-width: 1080px) {
+      .workspace-grid {
         grid-template-columns: 1fr;
+      }
+      .curriculum-classes-row {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (max-width: 640px) {
+      .header-inner {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .curriculum-classes-row {
+        grid-template-columns: 1fr;
+      }
+      .doc-meta-table {
+        grid-template-columns: 1fr 1fr;
+      }
+      .formal-exam-document {
+        padding: 20px 16px;
       }
     }
   </style>
 </head>
 <body>
-  <div class="ambient-glow"></div>
 
-  <div class="app-container">
-    <!-- Header -->
-    <header>
-      <div class="brand">
-        <div class="logo-badge">QP</div>
+  <!-- Application Navigation Header -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="brand-group">
+        <div class="brand-icon">QP</div>
         <div class="brand-text">
-          <h1>QPGen <span style="font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(99,102,241,0.2); color:#a5b4fc;">v0.1.0</span></h1>
-          <p>AI-Based Curriculum-Aligned Mathematics Question Paper Generator</p>
+          <h1>QPGen <span class="version-tag">SaaS Edition</span></h1>
+          <p>Curriculum-Aligned Mathematics Question Paper Generator</p>
         </div>
       </div>
-      <div class="header-links">
-        <div class="status-badge" id="server-status">
+      <div class="header-actions">
+        <div class="status-indicator" id="server-status">
           <div class="status-dot"></div>
           <span>System Healthy</span>
         </div>
-        <a href="/docs" target="_blank" class="btn-link">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+        <button type="button" class="btn-header" onclick="toggleSavedPapersDrawer()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+          <span id="saved-papers-btn-text">Saved Papers</span>
+        </button>
+        <a href="/docs" target="_blank" class="btn-header">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
           API Docs
         </a>
       </div>
-    </header>
+    </div>
+  </header>
 
-    <!-- Main Content -->
-    <div class="main-grid">
-      <!-- Left Column: Controls -->
-      <div class="controls-col">
-        <!-- Curriculum Status Card (Permanent Textbooks) -->
-        <div class="card" id="curriculum-status-card">
-          <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span class="step-num" style="background: var(--accent-cyan); color: #0a0e17;">📚</span>
-              <span>Curriculum Status</span>
-            </div>
-            <span class="badge green" id="curriculum-summary-badge">5/5 Ready</span>
-          </div>
+  <div class="app-wrapper">
 
-          <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.45;">
-            Official Karnataka Mathematics textbooks (Classes 1–5) are permanently stored and indexed. Teachers never need to upload syllabus files.
-          </p>
-
-          <div id="curriculum-status-list" style="display: flex; flex-direction: column; gap: 8px;">
-            <div style="font-size: 12px; color: var(--text-dim); text-align: center; padding: 12px;">
-              Loading curriculum status...
-            </div>
+    <!-- Top Curriculum Status Strip (Classes 1 to 5) -->
+    <section class="curriculum-strip-card" id="curriculum-status-card">
+      <div class="curriculum-header">
+        <div class="curriculum-title-wrap">
+          <div class="curriculum-icon-badge">📚</div>
+          <div>
+            <span class="curriculum-title">Curriculum Textbooks Status</span>
+            <span class="curriculum-subtitle">Karnataka State Mathematics Curriculum (Classes 1–5)</span>
           </div>
         </div>
-
-        <!-- Step 2: Paper Specifications -->
-        <div class="card">
-          <div class="card-title">
-            <span class="step-num">⚙️</span>
-            <span>Paper Specifications</span>
-          </div>
-
-          <form id="generate-form">
-            <!-- Select Grade / Class -->
-            <div class="form-group">
-              <label for="grade-select">Select Grade / Class</label>
-              <select id="grade-select" required onchange="updateCurriculumDescription()">
-                <option value="1">Class 1</option>
-                <option value="2">Class 2</option>
-                <option value="3">Class 3</option>
-                <option value="4">Class 4</option>
-                <option value="5" selected>Class 5</option>
-              </select>
-            </div>
-
-            <!-- Select Examination Type -->
-            <div class="form-group">
-              <label for="exam-type-select">Select Examination Type</label>
-              <select id="exam-type-select" required onchange="updateCurriculumDescription()">
-                <option value="prerequisite">Prerequisite Examination</option>
-                <option value="midterm">Mid-Semester Examination</option>
-                <option value="final" selected>Final Examination</option>
-              </select>
-              <div id="exam-curriculum-hint" style="margin-top: 8px; font-size: 12px; line-height: 1.45; border-radius: var(--radius-sm); padding: 8px 12px; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.25); color: #a5b4fc;">
-                Loading curriculum guidance...
-              </div>
-            </div>
-
-            <div class="form-group">
-              <label>Difficulty</label>
-              <div class="pill-group" id="difficulty-group">
-                <button type="button" class="pill-btn" data-val="easy">Easy</button>
-                <button type="button" class="pill-btn active" data-val="medium">Medium</button>
-                <button type="button" class="pill-btn" data-val="hard">Hard</button>
-              </div>
-            </div>
-
-            <div class="form-group">
-              <label>Question Types to Include</label>
-              <div class="checkbox-group">
-                <label class="checkbox-label">
-                  <input type="checkbox" name="qtype" value="multiple_choice" checked>
-                  <span>Multiple Choice (MCQ)</span>
-                </label>
-                <label class="checkbox-label">
-                  <input type="checkbox" name="qtype" value="short_answer" checked>
-                  <span>Short Answer</span>
-                </label>
-                <label class="checkbox-label">
-                  <input type="checkbox" name="qtype" value="long_answer" checked>
-                  <span>Long Answer / Problem Solving</span>
-                </label>
-              </div>
-            </div>
-
-            <div class="form-row">
-              <div class="form-group">
-                <label for="count-input">Number of Questions</label>
-                <input type="number" id="count-input" value="4" min="1" max="25" required>
-              </div>
-              <div class="form-group">
-                <label for="marks-input">Total Marks</label>
-                <input type="number" id="marks-input" value="20" min="1" max="100" required>
-              </div>
-            </div>
-
-            <button type="submit" class="btn-generate" id="btn-submit">
-              <span id="btn-text">⚡ Generate Question Paper</span>
-              <div class="spinner" id="btn-spinner" style="display: none;"></div>
-            </button>
-          </form>
+        <span class="pill-badge ready" id="curriculum-summary-badge" style="font-size: 11px; padding: 4px 10px;">
+          5/5 Ready
+        </span>
+      </div>
+      <div class="curriculum-classes-row" id="curriculum-status-list">
+        <div style="font-size: 12px; color: var(--text-muted); text-align: center; grid-column: span 5; padding: 8px;">
+          Loading curriculum textbooks status...
         </div>
       </div>
+    </section>
 
-      <!-- Right Column: Live Output Preview -->
-      <div class="preview-col">
-        <div class="preview-container">
+    <!-- Main Workspace: Form on Left, Output Paper on Right -->
+    <main class="workspace-grid">
+
+      <!-- Left Column: Assessment Parameters Form -->
+      <section class="controls-col">
+        <div class="panel-card">
+          <div class="panel-header">
+            <h2 class="panel-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+              Paper Specifications
+            </h2>
+            <p class="panel-subtitle">Configure syllabus scope, question mix, and target marks</p>
+          </div>
+
+          <div class="panel-body">
+            <form id="generate-form">
+
+              <!-- Grade / Class Selector -->
+              <div class="form-group">
+                <label for="grade-select" class="field-label">Student Class / Grade</label>
+                <select id="grade-select" class="form-control" required onchange="updateCurriculumDescription()">
+                  <option value="1">Class 1</option>
+                  <option value="2">Class 2</option>
+                  <option value="3">Class 3</option>
+                  <option value="4">Class 4</option>
+                  <option value="5" selected>Class 5</option>
+                </select>
+              </div>
+
+              <!-- Examination Type Selector -->
+              <div class="form-group">
+                <label for="exam-type-select" class="field-label">Examination Type</label>
+                <select id="exam-type-select" class="form-control" required onchange="updateCurriculumDescription()">
+                  <option value="prerequisite">Prerequisite Examination</option>
+                  <option value="midterm">Mid-Semester Examination</option>
+                  <option value="final" selected>Final Examination</option>
+                </select>
+                <!-- Dynamic Scope Guidance Box -->
+                <div id="exam-curriculum-hint" class="scope-callout">
+                  Loading curriculum guidance...
+                </div>
+              </div>
+
+              <!-- Difficulty Selector -->
+              <div class="form-group">
+                <label class="field-label">Difficulty Standard</label>
+                <div class="segmented-control" id="difficulty-group">
+                  <button type="button" class="segmented-btn pill-btn" data-val="easy">Easy</button>
+                  <button type="button" class="segmented-btn pill-btn active" data-val="medium">Medium</button>
+                  <button type="button" class="segmented-btn pill-btn" data-val="hard">Hard</button>
+                </div>
+              </div>
+
+              <!-- Question Types to Include -->
+              <div class="form-group">
+                <label class="field-label">Question Types to Include</label>
+                <div class="checkbox-stack">
+                  <label class="checkbox-item checkbox-label">
+                    <input type="checkbox" name="qtype" value="multiple_choice" checked>
+                    <span>Multiple Choice Questions (MCQ)</span>
+                  </label>
+                  <label class="checkbox-item checkbox-label">
+                    <input type="checkbox" name="qtype" value="short_answer" checked>
+                    <span>Short Answer Questions</span>
+                  </label>
+                  <label class="checkbox-item checkbox-label">
+                    <input type="checkbox" name="qtype" value="long_answer" checked>
+                    <span>Long Answer / Problem Solving</span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Question Count and Marks -->
+              <div class="form-row-2">
+                <div class="form-group">
+                  <label for="count-input" class="field-label">Questions</label>
+                  <input type="number" id="count-input" class="form-control" value="10" min="1" max="25" required>
+                </div>
+                <div class="form-group">
+                  <label for="marks-input" class="field-label">Total Marks</label>
+                  <input type="number" id="marks-input" class="form-control" value="25" min="1" max="100" required>
+                </div>
+              </div>
+
+              <!-- Primary Submit Button -->
+              <button type="submit" class="btn-generate-solid" id="btn-submit">
+                <span id="btn-text">Generate Question Paper</span>
+                <div class="spinner-sm" id="btn-spinner" style="display: none;"></div>
+              </button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Column: Question Paper Preview -->
+      <section class="preview-col">
+        <div class="results-panel">
+
           <!-- Empty State -->
-          <div class="empty-state" id="empty-state">
-            <div class="empty-icon">📝</div>
-            <div class="empty-title">No Question Paper Generated Yet</div>
-            <p style="max-width: 420px; font-size: 13px; margin-top: 6px;">
-              Select a Class (1–5) and Examination Type, configure questions and marks, then click <strong>Generate Question Paper</strong>.
+          <div class="empty-placeholder" id="empty-state">
+            <div class="empty-symbol">📝</div>
+            <h3 class="empty-heading">No Question Paper Generated Yet</h3>
+            <p class="empty-caption">
+              Select an academic class and examination type on the left, adjust your target questions and marks, and click <strong>Generate Question Paper</strong> to create a blueprint-structured examination paper.
             </p>
           </div>
 
-          <!-- Paper Details View (Hidden initially) -->
-          <div id="paper-view" style="display: none;">
-            <div class="preview-header">
-              <div class="preview-title">
-                <h2 id="paper-title">Mathematics - Quadratic Equations</h2>
-                <div class="preview-badges">
-                  <span class="badge purple" id="badge-exam-type">Final Examination</span>
-                  <span class="badge" id="badge-grade">Class 10</span>
-                  <span class="badge green" id="badge-curriculum">Curriculum: Class 10 Mathematics</span>
-                  <span class="badge amber" id="badge-scope">Full Syllabus</span>
-                  <span class="badge" id="badge-diff">MEDIUM</span>
-                  <span class="badge" id="badge-counts">3 Questions • 10 Marks</span>
-                  <span class="badge green">FAISS Grounded ✓</span>
-                </div>
+          <!-- Active Question Paper View -->
+          <div class="paper-active-wrap" id="paper-view" style="display: none;">
+            
+            <!-- Toolbar -->
+            <div class="paper-toolbar">
+              <div class="view-segmented-wrap">
+                <button type="button" class="view-tab-btn active" id="tab-teacher" onclick="switchView('teacher')">
+                  Teacher View (Marking & Solutions)
+                </button>
+                <button type="button" class="view-tab-btn" id="tab-student" onclick="switchView('student')">
+                  Student Exam View (Test Sheet)
+                </button>
               </div>
-              <div class="export-actions">
-                <a id="download-teacher-btn" href="#" target="_blank" class="btn-export primary">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+
+              <div class="export-btn-group">
+                <a id="download-teacher-btn" href="#" target="_blank" class="btn-pdf-action primary">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                   Teacher PDF
                 </a>
-                <a id="download-student-btn" href="#" target="_blank" class="btn-export secondary">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                <a id="download-student-btn" href="#" target="_blank" class="btn-pdf-action outline">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                   Student PDF
                 </a>
               </div>
             </div>
 
-            <!-- View toggle tabs -->
-            <div class="view-tabs">
-              <button class="tab-btn active" id="tab-teacher" onclick="switchView('teacher')">Teacher View (Solutions & Grounding)</button>
-              <button class="tab-btn" id="tab-student" onclick="switchView('student')">Student Exam View</button>
+            <!-- Formal Exam Sheet Container -->
+            <div class="paper-sheet-container">
+              <article class="formal-exam-document">
+                
+                <!-- Institutional Document Header -->
+                <header class="doc-institutional-header">
+                  <div class="doc-exam-title" id="paper-title">MATHEMATICS QUESTION PAPER</div>
+                  <div style="font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-top: 2px;">
+                    Department of School Education &amp; Mathematics Assessment
+                  </div>
+
+                  <div class="doc-meta-table">
+                    <div class="doc-meta-item">
+                      <strong>Target Class</strong>
+                      <span id="badge-grade">Class 5</span>
+                    </div>
+                    <div class="doc-meta-item">
+                      <strong>Exam Type</strong>
+                      <span id="badge-exam-type">Final Examination</span>
+                    </div>
+                    <div class="doc-meta-item">
+                      <strong>Maximum Marks</strong>
+                      <span id="badge-counts">10 Questions • 25 Marks</span>
+                    </div>
+                    <div class="doc-meta-item">
+                      <strong>Difficulty</strong>
+                      <span id="badge-diff">MEDIUM</span>
+                    </div>
+                  </div>
+
+                  <div style="margin-top: 10px; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;">
+                    <span class="pill-badge ready" id="badge-curriculum">Curriculum: Class 5</span>
+                    <span class="pill-badge" style="background:var(--bg-subtle); color:var(--text-secondary); border:1px solid var(--border-medium);" id="badge-scope">Scope: Full Syllabus</span>
+                    <span class="pill-badge ready">FAISS Grounded ✓</span>
+                  </div>
+                </header>
+
+                <!-- Student Details Strip (Shown in Student View) -->
+                <div class="student-info-bar" id="student-details-strip" style="display: none;">
+                  <div>Student Name: ____________________________________</div>
+                  <div>Roll Number: ____________</div>
+                  <div>Section / Date: _________</div>
+                </div>
+
+                <!-- General Instructions -->
+                <div class="general-instructions-box">
+                  <strong>General Instructions:</strong> All sections are compulsory. Read every question carefully before answering. Marks allocated to each question or section are indicated against it.
+                </div>
+
+                <!-- Questions Container -->
+                <div class="questions-list-wrapper" id="questions-list">
+                  <!-- Rendered dynamically -->
+                </div>
+              </article>
             </div>
 
-            <!-- Questions Container -->
-            <div class="question-list" id="questions-list"></div>
           </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Saved Papers Drawer / Modal -->
+  <div class="drawer-overlay" id="saved-papers-modal" onclick="if(event.target === this) toggleSavedPapersDrawer()">
+    <div class="drawer-card">
+      <div class="drawer-header">
+        <h3 class="drawer-title">Saved Question Papers</h3>
+        <button type="button" class="drawer-close-btn" onclick="toggleSavedPapersDrawer()">&times;</button>
+      </div>
+      <div class="drawer-body" id="saved-papers-list">
+        <div style="font-size: 13px; color: var(--text-muted); text-align: center; padding: 24px;">
+          Loading saved question papers...
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Toast -->
-  <div class="toast" id="toast"></div>
+  <!-- Toast Notification -->
+  <div class="toast-pill" id="toast"></div>
 
+  <!-- Client-side Logic (Preserving 100% of existing behavior and functions) -->
   <script>
     let selectedDocumentId = null;
     let selectedDifficulty = 'medium';
     let currentPaper = null;
     let currentView = 'teacher';
+    let curriculumData = [];
 
     // HTML escape utility for safe DOM rendering
     function escapeHtml(str) {
@@ -964,8 +1372,6 @@
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
     }
-
-    let curriculumData = [];
 
     // Dynamic curriculum description based on examination type and academic class
     function updateCurriculumDescription() {
@@ -983,29 +1389,29 @@
       if (examType === 'prerequisite') {
         if (gradeNum === 1) {
           hintEl.innerHTML = `⚠️ <strong>Prerequisite Examination is unavailable for Class 1:</strong> A prerequisite assessment requires a preceding academic class syllabus, which is not configured for Class 1.`;
-          hintEl.style.color = '#f43f5e';
-          hintEl.style.borderColor = 'rgba(244, 63, 94, 0.4)';
-          hintEl.style.background = 'rgba(244, 63, 94, 0.08)';
+          hintEl.style.color = 'var(--danger-text)';
+          hintEl.style.borderColor = 'var(--danger-border)';
+          hintEl.style.background = 'var(--danger-bg)';
         } else {
           const prevNum = gradeNum - 1;
           const prevCurriculum = curriculumData.find(c => c.grade === prevNum);
           const prevChapters = prevCurriculum ? prevCurriculum.chapters : [];
-          hintEl.innerHTML = `<strong>Prerequisite Examination:</strong> Questions will be generated exclusively from the <strong>Class ${prevNum} Mathematics</strong> textbook (${prevChapters.length} chapters) to assess readiness for Class ${gradeNum}.`;
-          hintEl.style.color = '#38bdf8';
-          hintEl.style.borderColor = 'rgba(56, 189, 248, 0.3)';
-          hintEl.style.background = 'rgba(56, 189, 248, 0.08)';
+          hintEl.innerHTML = `<strong>Prerequisite Assessment:</strong> Questions will be generated exclusively from the <strong>Class ${prevNum} Mathematics</strong> textbook (${prevChapters.length} chapters) to assess readiness for Class ${gradeNum}.`;
+          hintEl.style.color = 'var(--accent-primary)';
+          hintEl.style.borderColor = 'var(--accent-border)';
+          hintEl.style.background = 'var(--accent-subtle)';
         }
       } else if (examType === 'midterm') {
-        hintEl.innerHTML = `<strong>Mid-Semester Examination:</strong> Questions will be generated from the <strong>first half</strong> of the Class ${gradeNum} syllabus (${midtermChapters.length} of ${allChapters.length} chapters):<br><span style="color:var(--text-muted); font-size:11px;">${escapeHtml(midtermChapters.join(', '))}</span>`;
-        hintEl.style.color = '#fcd34d';
-        hintEl.style.borderColor = 'rgba(252, 211, 77, 0.3)';
-        hintEl.style.background = 'rgba(252, 211, 77, 0.08)';
+        hintEl.innerHTML = `<strong>Mid-Semester Assessment:</strong> Questions will assess the <strong>first half</strong> of the Class ${gradeNum} syllabus (${midtermChapters.length} of ${allChapters.length} chapters):<br><span style="color:var(--text-muted); font-size:11px;">${escapeHtml(midtermChapters.join(', '))}</span>`;
+        hintEl.style.color = 'var(--warning-text)';
+        hintEl.style.borderColor = 'var(--warning-border)';
+        hintEl.style.background = 'var(--warning-bg)';
       } else {
         const previewChapters = allChapters.slice(0, 5).join(', ');
         hintEl.innerHTML = `<strong>Final Examination:</strong> Comprehensive assessment covering the <strong>full Class ${gradeNum} Mathematics</strong> textbook (${allChapters.length} chapters):<br><span style="color:var(--text-muted); font-size:11px;">${escapeHtml(previewChapters)}${allChapters.length > 5 ? '...' : ''}</span>`;
-        hintEl.style.color = '#a5b4fc';
-        hintEl.style.borderColor = 'rgba(99, 102, 241, 0.3)';
-        hintEl.style.background = 'rgba(99, 102, 241, 0.08)';
+        hintEl.style.color = 'var(--text-secondary)';
+        hintEl.style.borderColor = 'var(--border-medium)';
+        hintEl.style.background = 'var(--bg-subtle)';
       }
     }
 
@@ -1024,35 +1430,37 @@
 
         data.forEach(item => {
           if (item.indexed) readyCount++;
-          const row = document.createElement('div');
-          row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:8px 12px; font-size:12px;';
+          const pill = document.createElement('div');
+          pill.className = 'class-status-pill';
           
           const statusBadge = item.indexed 
-            ? `<span class="badge green" style="font-size:11px;">✓ Ready (${item.total_chunks} chunks)</span>`
-            : (item.available ? `<span class="badge amber" style="font-size:11px;">PDF Available</span>` : `<span class="badge red" style="font-size:11px;">Missing</span>`);
+            ? `<span class="pill-badge ready">✓ Ready</span>`
+            : (item.available ? `<span class="pill-badge" style="background:var(--warning-bg); color:var(--warning-text);">PDF Available</span>` : `<span class="pill-badge missing">Missing</span>`);
 
-          row.innerHTML = `
-            <div>
-              <strong style="color:var(--text-main);">${escapeHtml(item.class_name)}</strong>
-              <div style="color:var(--text-dim); font-size:11px;">${item.total_chapters} Chapters • Textbook Ready</div>
+          pill.innerHTML = `
+            <div class="class-pill-top">
+              <span class="class-name-label">${escapeHtml(item.class_name)}</span>
+              ${statusBadge}
             </div>
-            ${statusBadge}
+            <div class="class-meta-label">
+              ${item.total_chapters} Chapters • ${item.total_chunks} Chunks
+            </div>
           `;
-          container.appendChild(row);
+          container.appendChild(pill);
         });
 
         if (badgeEl) {
-          badgeEl.textContent = `${readyCount}/5 Ready`;
-          badgeEl.className = readyCount === 5 ? 'badge green' : 'badge amber';
+          badgeEl.textContent = `${readyCount}/5 Textbooks Ready`;
+          badgeEl.className = readyCount === 5 ? 'pill-badge ready' : 'pill-badge';
         }
 
         updateCurriculumDescription();
       } catch (err) {
-        container.innerHTML = '<div style="color:var(--accent-rose); font-size:12px; text-align:center; padding:10px;">Failed to load curriculum status.</div>';
+        container.innerHTML = '<div style="color:var(--danger-text); font-size:12px; text-align:center; padding:10px; grid-column:span 5;">Failed to load curriculum status.</div>';
       }
     }
 
-    // Difficulty buttons
+    // Difficulty buttons event handling
     document.querySelectorAll('.pill-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         document.querySelectorAll('.pill-btn').forEach(b => b.classList.remove('active'));
@@ -1061,69 +1469,103 @@
       });
     });
 
-    // Toast
+    // Toast Notification utility
     function showToast(msg, isError = false) {
       const toast = document.getElementById('toast');
       toast.textContent = msg;
-      toast.style.borderColor = isError ? 'var(--accent-rose)' : 'var(--border-accent)';
+      toast.className = isError ? 'toast-pill error' : 'toast-pill';
       toast.style.display = 'flex';
-      setTimeout(() => { toast.style.display = 'none'; }, 4000);
+      setTimeout(() => { toast.style.display = 'none'; }, 4500);
     }
 
-    // Load Documents
-    async function loadDocuments() {
-      try {
-        const res = await fetch('/documents');
-        if (!res.ok) return;
-        const docs = await res.json();
-        const list = document.getElementById('doc-list');
-        list.innerHTML = '';
-
-        if (docs.length === 0) {
-          list.innerHTML = '<div style="font-size: 12px; color: var(--text-dim); text-align: center; padding: 12px;">No documents uploaded yet. Upload a syllabus above.</div>';
-          selectedDocumentId = null;
-          return;
-        }
-
-        docs.forEach((doc, idx) => {
-          const item = document.createElement('div');
-          item.className = 'doc-item' + (selectedDocumentId === doc.document_id || (!selectedDocumentId && idx === 0) ? ' selected' : '');
-          if (!selectedDocumentId && idx === 0) selectedDocumentId = doc.document_id;
-
-          const gradeBadge = doc.grade ? `<span style="background: rgba(99, 102, 241, 0.2); color: #a5b4fc; font-weight: 600; padding: 1px 6px; border-radius: 4px; font-size: 11px;">Class ${escapeHtml(doc.grade)}</span><span>•</span>` : '';
-
-          item.innerHTML = `
-            <div class="doc-meta">
-              <div class="doc-name">${escapeHtml(doc.original_filename)}</div>
-              <div class="doc-badges">
-                ${gradeBadge}
-                <span>${doc.num_chunks} chunks</span>
-                <span>•</span>
-                <span>${(doc.file_size_bytes / 1024).toFixed(1)} KB</span>
-                <span>•</span>
-                <span style="color: #34d399;">Indexed ✓</span>
-              </div>
-            </div>
-            <button class="doc-del-btn" title="Delete document" onclick="deleteDoc(event, '${doc.document_id}')">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-            </button>
-          `;
-
-          item.onclick = (e) => {
-            if (e.target.closest('.doc-del-btn')) return;
-            document.querySelectorAll('.doc-item').forEach(i => i.classList.remove('selected'));
-            item.classList.add('selected');
-            selectedDocumentId = doc.document_id;
-          };
-
-          list.appendChild(item);
-        });
-      } catch (err) {
-        console.error(err);
+    // Toggle Saved Papers Drawer
+    function toggleSavedPapersDrawer() {
+      const modal = document.getElementById('saved-papers-modal');
+      const isVisible = modal.style.display === 'flex';
+      modal.style.display = isVisible ? 'none' : 'flex';
+      if (!isVisible) {
+        loadPapers();
       }
     }
 
-    // Generate Form Submit
+    // Load Saved Question Papers List
+    async function loadPapers() {
+      const listEl = document.getElementById('saved-papers-list');
+      const btnTextEl = document.getElementById('saved-papers-btn-text');
+      try {
+        const res = await fetch('/papers');
+        if (!res.ok) throw new Error('Failed to load papers');
+        const papers = await res.json();
+
+        if (btnTextEl) {
+          btnTextEl.textContent = `Saved Papers (${papers.length})`;
+        }
+
+        if (!listEl) return;
+
+        if (papers.length === 0) {
+          listEl.innerHTML = '<div style="font-size: 13px; color: var(--text-muted); text-align: center; padding: 24px;">No question papers saved yet. Generate your first paper above!</div>';
+          return;
+        }
+
+        listEl.innerHTML = '';
+        papers.forEach(p => {
+          const row = document.createElement('div');
+          row.className = 'saved-paper-row';
+          const dateStr = p.created_at ? new Date(p.created_at).toLocaleDateString() : '';
+          
+          row.innerHTML = `
+            <div>
+              <div style="font-size: 13px; font-weight: 700; color: var(--text-primary);">${escapeHtml(p.title)}</div>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+                ${p.num_questions} Questions • ${p.total_marks} Marks • ${escapeHtml(p.grade || '')} • ${dateStr}
+              </div>
+            </div>
+            <div style="display: flex; gap: 6px;">
+              <button class="btn-pdf-action primary" onclick="loadPaperById('${p.paper_id}')">Open</button>
+              <a href="/papers/${p.paper_id}/pdf?include_answers=true" target="_blank" class="btn-pdf-action outline" title="Teacher PDF">PDF (T)</a>
+              <a href="/papers/${p.paper_id}/pdf?include_answers=false" target="_blank" class="btn-pdf-action outline" title="Student PDF">PDF (S)</a>
+              <button class="btn-pdf-action outline" style="color:var(--danger-text);" onclick="deletePaperById(event, '${p.paper_id}')">✕</button>
+            </div>
+          `;
+          listEl.appendChild(row);
+        });
+      } catch (err) {
+        if (listEl) {
+          listEl.innerHTML = `<div style="color:var(--danger-text); font-size:12px; text-align:center; padding:12px;">Failed to load saved papers: ${escapeHtml(err.message)}</div>`;
+        }
+      }
+    }
+
+    // Load single paper by ID and render on screen
+    async function loadPaperById(paperId) {
+      try {
+        const res = await fetch(`/papers/${paperId}`);
+        if (!res.ok) throw new Error('Paper not found');
+        currentPaper = await res.json();
+        renderPaper(currentPaper);
+        toggleSavedPapersDrawer();
+        showToast('Question paper loaded into preview.');
+      } catch (err) {
+        showToast(err.message, true);
+      }
+    }
+
+    // Delete single paper by ID
+    async function deletePaperById(event, paperId) {
+      event.stopPropagation();
+      if (!confirm('Are you sure you want to delete this saved paper?')) return;
+      try {
+        const res = await fetch(`/papers/${paperId}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Delete failed');
+        showToast('Paper deleted successfully.');
+        loadPapers();
+      } catch (err) {
+        showToast(err.message, true);
+      }
+    }
+
+    // Generate Form Submit Event
     document.getElementById('generate-form').addEventListener('submit', async (e) => {
       e.preventDefault();
 
@@ -1181,15 +1623,15 @@
         showToast(err.message, true);
       } finally {
         btn.disabled = false;
-        btnText.textContent = '⚡ Generate Question Paper';
+        btnText.textContent = 'Generate Question Paper';
         btnSpinner.style.display = 'none';
       }
     });
 
-    // Render Paper
+    // Render Paper Header and Metadata
     function renderPaper(paper) {
       document.getElementById('empty-state').style.display = 'none';
-      document.getElementById('paper-view').style.display = 'block';
+      document.getElementById('paper-view').style.display = 'flex';
 
       const examNames = {
         'prerequisite': 'Prerequisite Examination',
@@ -1200,10 +1642,10 @@
       const academicClass = paper.academic_grade || paper.grade;
       const curriculumClass = paper.curriculum_grade || paper.grade;
 
-      document.getElementById('paper-title').textContent = paper.title;
+      document.getElementById('paper-title').textContent = (paper.title || 'Mathematics Assessment').toUpperCase();
       document.getElementById('badge-exam-type').textContent = examTypeDisplay;
-      document.getElementById('badge-grade').textContent = `Enrolled: Class ${academicClass}`;
-      document.getElementById('badge-curriculum').textContent = `Curriculum Used: Class ${curriculumClass} ${paper.subject}`;
+      document.getElementById('badge-grade').textContent = `Class ${academicClass}`;
+      document.getElementById('badge-curriculum').textContent = `Curriculum: Class ${curriculumClass} Mathematics`;
       document.getElementById('badge-scope').textContent = `Scope: ${paper.syllabus_scope || (paper.exam_type === 'midterm' ? 'First Half of Syllabus' : 'Full Syllabus')}`;
       document.getElementById('badge-diff').textContent = (paper.difficulty || 'MEDIUM').toUpperCase();
       document.getElementById('badge-counts').textContent = `${paper.num_questions} Questions • ${paper.total_marks} Marks`;
@@ -1214,26 +1656,32 @@
       renderPaperContent(paper);
     }
 
+    // Switch between Teacher and Student Views
     function switchView(view) {
       currentView = view;
       document.getElementById('tab-teacher').classList.toggle('active', view === 'teacher');
       document.getElementById('tab-student').classList.toggle('active', view === 'student');
+      
+      const studentStrip = document.getElementById('student-details-strip');
+      if (studentStrip) {
+        studentStrip.style.display = (view === 'student') ? 'grid' : 'none';
+      }
+
       if (currentPaper) renderPaperContent(currentPaper);
     }
 
+    // Render Questions Content inside Formal Sheet
     function renderPaperContent(paper) {
       const container = document.getElementById('questions-list');
       container.innerHTML = '';
 
       let globalQNum = 1;
 
-      // Check if structured sections exist
       if (paper.sections && paper.sections.length > 0) {
         paper.sections.forEach((sec) => {
-          // Section Card Header
-          const secHeader = document.createElement('div');
-          secHeader.style.cssText = 'margin: 24px 0 14px 0; padding: 14px 18px; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 10px;';
-          
+          const secBanner = document.createElement('div');
+          secBanner.className = 'section-banner';
+
           let marksFormula = `${sec.num_questions} Questions • ${sec.section_marks} Marks`;
           if (sec.marks_per_question) {
             marksFormula = `${sec.num_questions} × ${sec.marks_per_question} = ${sec.section_marks} Marks`;
@@ -1241,87 +1689,85 @@
             marksFormula = `${sec.num_questions} × ${sec.section_marks / sec.num_questions} = ${sec.section_marks} Marks`;
           }
 
-          secHeader.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-              <h3 style="margin: 0; color: #e2e8f0; font-size: 1.15rem; font-weight: 700; letter-spacing: -0.01em;">${escapeHtml(sec.title)}</h3>
-              <span class="badge" style="background: rgba(99, 102, 241, 0.22); color: #c7d2fe; font-size: 0.85rem; padding: 4px 12px; border-radius: 6px; font-weight: 600;">
-                ${marksFormula}
-              </span>
+          secBanner.innerHTML = `
+            <div>
+              <div class="section-banner-title">${escapeHtml(sec.title)}</div>
+              ${sec.instructions ? `<div class="section-banner-instructions">${escapeHtml(sec.instructions)}</div>` : ''}
             </div>
-            ${sec.instructions ? `<div style="margin-top: 6px; color: var(--text-muted); font-size: 0.85rem; font-style: italic;">${escapeHtml(sec.instructions)}</div>` : ''}
+            <div class="section-banner-marks">${marksFormula}</div>
           `;
-          container.appendChild(secHeader);
+          container.appendChild(secBanner);
 
-          // Render questions within this section
           sec.questions.forEach((q) => {
-            container.appendChild(createQuestionCard(q, globalQNum));
+            container.appendChild(createFormalQuestionElement(q, globalQNum));
             globalQNum++;
           });
         });
       } else {
-        // Fallback for flat questions list
         (paper.questions || []).forEach((q) => {
-          container.appendChild(createQuestionCard(q, globalQNum));
+          container.appendChild(createFormalQuestionElement(q, globalQNum));
           globalQNum++;
         });
       }
     }
 
-    function createQuestionCard(q, qNum) {
-      const card = document.createElement('div');
-      card.className = 'question-card';
+    // Create Individual Question Block
+    function createFormalQuestionElement(q, qNum) {
+      const block = document.createElement('div');
+      block.className = 'formal-question-block';
 
+      // Options for Multiple Choice
       let optionsHtml = '';
       if (q.options && q.options.length > 0) {
-        optionsHtml = '<div class="options-grid">' +
+        optionsHtml = '<div class="formal-options-grid">' +
           q.options.map((opt, oIdx) => {
             const letter = String.fromCharCode(65 + oIdx);
             const isCorrect = (currentView === 'teacher' && opt === q.correct_option);
-            return `<div class="option-item ${isCorrect ? 'correct' : ''}">
-              <strong>${letter}.</strong> <span>${escapeHtml(opt)}</span> ${isCorrect ? '✓' : ''}
-            </div>`;
+            return `
+              <div class="formal-opt-box ${isCorrect ? 'correct-teacher' : ''}">
+                <span class="opt-letter">(${letter})</span>
+                <span>${escapeHtml(opt)}</span>
+                ${isCorrect ? '<span style="margin-left:auto; font-weight:700;">✓ Correct</span>' : ''}
+              </div>
+            `;
           }).join('') +
         '</div>';
       }
 
-      let studentWorkArea = '';
-      let teacherContent = '';
-
+      // Student View: Workspace lines
+      let studentArea = '';
       if (currentView === 'student') {
         if (q.question_type === 'multiple_choice') {
-          studentWorkArea = `
-            <div style="margin-top: 12px; padding: 8px 12px; background: rgba(255, 255, 255, 0.03); border: 1px dashed var(--border-color); border-radius: 6px; font-size: 0.9rem; color: var(--text-muted);">
-              <strong>Answer : &nbsp;[ &nbsp;&nbsp;&nbsp;&nbsp; ]</strong> &nbsp;&nbsp;&nbsp;&nbsp; __________________________________________________
+          studentArea = `
+            <div style="font-size:12px; color:var(--text-secondary); margin-top:8px; padding:6px 10px; background:#f8fafc; border:1px solid var(--border-light); border-radius:4px;">
+              <strong>Correct Option: &nbsp;[ &nbsp;&nbsp;&nbsp;&nbsp; ]</strong> &nbsp;&nbsp;&nbsp;&nbsp; Answer: ____________________________________
             </div>
           `;
         } else if (q.question_type === 'short_answer') {
-          studentWorkArea = `
-            <div style="margin-top: 12px; height: 75px; border-bottom: 1px dashed var(--border-color); display: flex; flex-direction: column; justify-content: space-around;">
-              <div style="border-bottom: 1px dashed rgba(255,255,255,0.06);"></div>
-              <div style="border-bottom: 1px dashed rgba(255,255,255,0.06);"></div>
-              <div style="color: var(--text-muted); font-size: 0.78rem; font-style: italic;">[ Space for Student Working &amp; Answer ]</div>
+          studentArea = `
+            <div class="student-working-space compact">
+              <span class="workspace-watermark">[ Space for Rough Working and Answer ]</span>
             </div>
           `;
         } else {
-          studentWorkArea = `
-            <div style="margin-top: 12px; height: 130px; border-bottom: 1px dashed var(--border-color); display: flex; flex-direction: column; justify-content: space-around;">
-              <div style="border-bottom: 1px dashed rgba(255,255,255,0.06);"></div>
-              <div style="border-bottom: 1px dashed rgba(255,255,255,0.06);"></div>
-              <div style="border-bottom: 1px dashed rgba(255,255,255,0.06);"></div>
-              <div style="border-bottom: 1px dashed rgba(255,255,255,0.06);"></div>
-              <div style="color: var(--text-muted); font-size: 0.78rem; font-style: italic;">[ Dedicated Problem Solving Workspace ]</div>
+          studentArea = `
+            <div class="student-working-space large">
+              <span class="workspace-watermark">[ Dedicated Problem Solving &amp; Calculation Workspace ]</span>
             </div>
           `;
         }
-      } else {
-        // Teacher View: Solutions, Guidance, Math Verification, Citations
-        let mathBadge = '';
+      }
+
+      // Teacher View: Solutions, Grading guidance, SymPy Math Check & Citations
+      let teacherArea = '';
+      if (currentView === 'teacher') {
+        let mathCheckHtml = '';
         if (q.math_verification) {
           const mv = q.math_verification;
           if (mv.status === 'verified') {
-            mathBadge = `<div class="math-check-badge verified">✓ SymPy Math Checked: ${escapeHtml(mv.details)}</div>`;
+            mathCheckHtml = `<div class="sympy-verified-tag">✓ SymPy Math Checked: ${escapeHtml(mv.details)}</div>`;
           } else if (mv.status === 'discrepancy') {
-            mathBadge = `<div class="math-check-badge discrepancy">⚠ Math Discrepancy: ${escapeHtml(mv.details)}</div>`;
+            mathCheckHtml = `<div class="pill-badge missing" style="margin-top:6px;">⚠️ Math Discrepancy: ${escapeHtml(mv.details)}</div>`;
           }
         }
 
@@ -1329,45 +1775,43 @@
         if (q.source_references && q.source_references.length > 0) {
           const ref = q.source_references[0];
           citationHtml = `
-            <div class="q-grounding">
-              <span class="grounding-tag">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
-                Grounded in ${escapeHtml(ref.source_filename)} (Chunk ${ref.chunk_index ?? 0})
-              </span>
-              <span style="font-style: italic;">"${escapeHtml(ref.passage_preview)}"</span>
+            <div class="grounding-tag-line">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+              <span>Grounded in <strong>${escapeHtml(ref.source_filename)}</strong> (Chunk ${ref.chunk_index ?? 0}): "${escapeHtml(ref.passage_preview)}"</span>
             </div>
           `;
         }
 
-        teacherContent = `
-          <div class="solution-box">
-            <div class="solution-title">Expected Answer &amp; Marking Guidance</div>
-            <div style="font-weight: 600; margin-bottom: 4px;">Answer: ${escapeHtml(q.answer)}</div>
-            <div style="color: var(--text-muted);">${escapeHtml(q.solution || '')}</div>
+        teacherArea = `
+          <div class="teacher-solution-panel">
+            <div class="teacher-solution-title">Marking Guidance &amp; Worked Solution</div>
+            <div class="teacher-expected-ans">Expected Answer: ${escapeHtml(q.answer)}</div>
+            <div class="teacher-step-text">${escapeHtml(q.solution || '')}</div>
+            ${mathCheckHtml}
+            ${citationHtml}
           </div>
-          ${mathBadge}
-          ${citationHtml}
         `;
       }
 
-      card.innerHTML = `
-        <div class="question-card-head">
-          <div class="q-number">
-            <span style="color: var(--accent-primary); font-weight: 700;">Q${qNum}.</span>
-            <span class="badge">${escapeHtml(q.question_type.replace('_', ' ').toUpperCase())}</span>
+      block.innerHTML = `
+        <div class="q-head-line">
+          <div class="q-number-bold">
+            <span>Q${qNum}.</span>
+            <span class="q-type-pill">${escapeHtml(q.question_type.replace('_', ' '))}</span>
+            ${q.chapter ? `<span class="q-chapter-pill" style="font-size:11px; color:var(--text-muted); background:var(--bg-subtle); padding:2px 8px; border-radius:4px; margin-left:6px; border:1px solid var(--border-light); font-weight:500;">${escapeHtml(q.chapter)}</span>` : ''}
           </div>
-          <span class="badge green">${q.marks} Mark${q.marks > 1 ? 's' : ''}</span>
+          <span class="q-marks-tag">[${q.marks} Mark${q.marks > 1 ? 's' : ''}]</span>
         </div>
-        <div class="q-text">${escapeHtml(q.question_text)}</div>
+        <div class="q-body-text">${escapeHtml(q.question_text)}</div>
         ${optionsHtml}
-        ${studentWorkArea}
-        ${teacherContent}
+        ${studentArea}
+        ${teacherArea}
       `;
 
-      return card;
+      return block;
     }
 
-    // Initialize
+    // Initialize application on page load
     loadCurriculumStatus();
     loadPapers();
   </script>

@@ -97,14 +97,59 @@ def extract_syllabus_units(text: str) -> list[str]:
     return cleaned
 
 
+def extract_chapter_number(chapter_str: str) -> tuple[int, str]:
+    """
+    Extract the numerical chapter index from strings like 'Lesson 1: ...',
+    'Chapter 10: ...', or 'Unit 5 - ...' for stable textbook-order sorting.
+    Returns (chapter_number, raw_string). Unnumbered chapters sort at the end (9999).
+    """
+    if not chapter_str:
+        return (9999, "")
+    m = re.search(r'\b(?:lesson|chapter|unit|module|topic)\s*(\d+)', chapter_str, re.IGNORECASE)
+    if m:
+        return (int(m.group(1)), chapter_str)
+    m2 = re.match(r'^\s*(\d+)[\.:\-\s]', chapter_str)
+    if m2:
+        return (int(m2.group(1)), chapter_str)
+    return (9999, chapter_str)
+
+
+def order_chapters_by_textbook(chapters: list[str]) -> list[str]:
+    """
+    Order chapters strictly according to textbook sequence (1, 2, ... 10).
+    Never sorts alphabetically (which incorrectly places Unit 10 before Unit 2)
+    and never uses an unordered collection.
+    """
+    if not chapters:
+        return []
+    nums = [extract_chapter_number(ch)[0] for ch in chapters]
+    if all(nums[i] <= nums[i + 1] for i in range(len(nums) - 1)) and all(n != 9999 for n in nums):
+        return list(chapters)
+    return sorted(chapters, key=extract_chapter_number)
+
+
 def determine_midterm_scope(units: list[str]) -> list[str]:
     """
-    For mid-semester examinations, select approximately the first half of syllabus units.
+    For mid-semester examinations, select the first half of textbook-ordered units.
+    Uses consistent ceil rounding for odd chapter counts (e.g. 9 -> 5, 10 -> 5).
+    Never sorts alphabetically.
     """
     if not units:
         return []
-    half_count = math.ceil(len(units) / 2.0)
-    return units[:half_count]
+    ordered = order_chapters_by_textbook(units)
+    half_count = math.ceil(len(ordered) / 2.0)
+    return ordered[:half_count]
+
+
+def determine_second_half_scope(units: list[str]) -> list[str]:
+    """
+    Return the second half of units (forbidden for mid-semester).
+    """
+    if not units:
+        return []
+    ordered = order_chapters_by_textbook(units)
+    half_count = math.ceil(len(ordered) / 2.0)
+    return ordered[half_count:]
 
 
 class QuestionType(str, Enum):
@@ -610,6 +655,14 @@ class PaperGenerateRequest(BaseModel):
         default=None,
         description="Permitted syllabus scope/units (e.g. first half, specific units, or full syllabus)",
     )
+    permitted_units: Optional[list[str]] = Field(
+        default=None,
+        description="Explicit list of permitted chapter/unit names for generation",
+    )
+    forbidden_units: Optional[list[str]] = Field(
+        default=None,
+        description="Explicit list of forbidden chapter/unit names excluded from generation",
+    )
     difficulty: Difficulty = Field(default=Difficulty.MEDIUM, description="Overall difficulty")
     question_types: list[QuestionType] = Field(
         default=[QuestionType.SHORT_ANSWER, QuestionType.LONG_ANSWER, QuestionType.MULTIPLE_CHOICE],
@@ -697,6 +750,14 @@ class BatchPaperGenerateRequest(BaseModel):
     syllabus_scope: Optional[str] = Field(
         default=None,
         description="Permitted syllabus scope/units",
+    )
+    permitted_units: Optional[list[str]] = Field(
+        default=None,
+        description="Explicit list of permitted chapter/unit names for generation",
+    )
+    forbidden_units: Optional[list[str]] = Field(
+        default=None,
+        description="Explicit list of forbidden chapter/unit names excluded from generation",
     )
     difficulty: Difficulty = Field(default=Difficulty.MEDIUM, description="Overall difficulty")
     num_versions: int = Field(default=2, ge=1, le=10, description="Number of unique paper versions to generate (1-10)")
@@ -794,6 +855,14 @@ class Paper(BaseModel):
     syllabus_scope: Optional[str] = Field(
         default=None,
         description="Applied syllabus scope or units",
+    )
+    permitted_units: Optional[list[str]] = Field(
+        default=None,
+        description="Exact permitted chapter/unit names used for generation",
+    )
+    forbidden_units: Optional[list[str]] = Field(
+        default=None,
+        description="Forbidden chapter/unit names excluded from generation",
     )
     difficulty: Difficulty
     created_at: str = Field(

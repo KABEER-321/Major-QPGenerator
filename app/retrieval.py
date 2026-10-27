@@ -14,6 +14,8 @@
 # human-readable text into vectors that FAISS can compare.
 
 import logging
+import math
+import re
 import time
 from pathlib import Path
 from typing import Optional, Union
@@ -23,6 +25,7 @@ from langchain_core.documents import Document
 
 from app.config import settings
 from app.model import get_embeddings
+from app.schemas import extract_chapter_number
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +118,54 @@ def load_faiss_index(document_id: str) -> FAISS:
     )
 
 
+def is_chunk_in_permitted_scope(
+    doc: Document,
+    permitted_units: list[str] | None = None,
+    first_half_only: bool = False,
+) -> bool:
+    """
+    Check if a Document chunk belongs to the permitted examination scope.
+    Filters by chapter/unit metadata, numerical chapter ordering, or explicit is_first_half flag.
+    Strictly excludes chunks with is_first_half=False or matching forbidden chapters.
+    """
+    meta = doc.metadata or {}
+
+    # Explicitly flagged as second half
+    if first_half_only and meta.get("is_first_half") is False:
+        return False
+
+    # If permitted_units are provided, match by chapter/unit name or chapter number
+    if permitted_units:
+        doc_ch = (meta.get("chapter") or meta.get("unit") or "").strip().lower()
+        if not doc_ch:
+            # Fallback for chunks without chapter metadata
+            if first_half_only:
+                return meta.get("is_first_half") is True
+            return False
+
+        doc_num, _ = extract_chapter_number(doc_ch)
+        for pu in permitted_units:
+            pu_clean = pu.strip().lower()
+            if not pu_clean:
+                continue
+            if doc_ch == pu_clean or pu_clean in doc_ch or doc_ch in pu_clean:
+                return True
+            pu_num, _ = extract_chapter_number(pu_clean)
+            if doc_num != 9999 and pu_num != 9999 and doc_num == pu_num:
+                return True
+        return False
+
+    # If first_half_only without specific permitted_units
+    if first_half_only:
+        if meta.get("is_first_half") is True:
+            return True
+        if "chunk_index" in meta and "total_chunks" in meta:
+            return meta["chunk_index"] < math.ceil(meta["total_chunks"] / 2.0)
+        return False
+
+    return True
+
+
 def retrieve_relevant_chunks(
     document_id: str,
     query: str,
@@ -125,6 +176,8 @@ def retrieve_relevant_chunks(
     """
     Retrieve the most relevant text chunks for a given query.
     Optionally enforces mid-semester scope restrictions (first half of document or permitted units).
+    Guarantees that when mid-semester or permitted units are specified, NO chunk from
+    outside the permitted scope is returned.
 
     Args:
         document_id: ID of the document whose index to search.
@@ -140,43 +193,56 @@ def retrieve_relevant_chunks(
         top_k = settings.RETRIEVAL_TOP_K
 
     vectorstore = load_faiss_index(document_id)
-    fetch_k = top_k * 4 if (first_half_only or permitted_units) else top_k
-    raw_results = vectorstore.similarity_search(query, k=max(fetch_k, top_k))
+    all_stored_docs = list(vectorstore.docstore._dict.values())
 
-    if not raw_results:
+    needs_filter = first_half_only or (permitted_units is not None and len(permitted_units) > 0)
+
+    if needs_filter:
+        # Pre-filter all allowed docs in the vector store
+        allowed_docs = [
+            d for d in all_stored_docs
+            if is_chunk_in_permitted_scope(d, permitted_units, first_half_only)
+        ]
+        if not allowed_docs:
+            raise ValueError(
+                f"No textbook chunks found matching the permitted examination scope in document '{document_id}'."
+            )
+
+        filter_fn = lambda m: is_chunk_in_permitted_scope(
+            Document(page_content="", metadata=m), permitted_units, first_half_only
+        )
+        try:
+            raw_results = vectorstore.similarity_search(
+                query,
+                k=min(top_k * 4, len(allowed_docs)),
+                filter=filter_fn,
+                fetch_k=len(all_stored_docs),
+            )
+        except Exception as e:
+            logger.warning("FAISS filter search failed: %s. Falling back to candidate filtering.", e)
+            raw_results = vectorstore.similarity_search(query, k=min(len(all_stored_docs), 50))
+
+        # Strictly enforce allowed docs only
+        results = [d for d in raw_results if is_chunk_in_permitted_scope(d, permitted_units, first_half_only)]
+        if not results:
+            results = allowed_docs[:top_k]
+        elif len(results) < top_k:
+            # Supplement from allowed_docs to give Gemini sufficient context
+            seen_chunk_ids = {d.metadata.get("chunk_id", id(d)) for d in results}
+            for ad in allowed_docs:
+                if len(results) >= top_k:
+                    break
+                cid = ad.metadata.get("chunk_id", id(ad))
+                if cid not in seen_chunk_ids:
+                    results.append(ad)
+                    seen_chunk_ids.add(cid)
+    else:
+        results = vectorstore.similarity_search(query, k=top_k)
+
+    if not results:
         raise ValueError(
             f"No relevant content found for topic '{query}' in document '{document_id}'. "
             "The paper cannot be grounded in the curriculum without matching passages."
         )
 
-    results = raw_results
-    if first_half_only:
-        filtered = []
-        for doc in raw_results:
-            if doc.metadata.get("is_first_half") is True:
-                filtered.append(doc)
-            elif "chunk_index" in doc.metadata and "total_chunks" in doc.metadata:
-                if doc.metadata["chunk_index"] < (doc.metadata["total_chunks"] / 2.0):
-                    filtered.append(doc)
-        if filtered:
-            results = filtered
-        else:
-            # Fallback for older indexes: take the first half of chunks by index
-            sorted_by_chunk = sorted(raw_results, key=lambda d: d.metadata.get("chunk_index", 0))
-            half_len = max(1, len(sorted_by_chunk) // 2)
-            results = sorted_by_chunk[:half_len]
-
-    if permitted_units:
-        unit_filtered = [
-            doc for doc in results
-            if any(u.lower() in doc.page_content.lower() for u in permitted_units)
-        ]
-        if unit_filtered:
-            results = unit_filtered
-
-    final_results = results[:top_k]
-    if not final_results:
-        raise ValueError(
-            f"No relevant content found for topic '{query}' within the permitted examination scope in document '{document_id}'."
-        )
-    return final_results
+    return results[:top_k]

@@ -111,29 +111,71 @@ def get_curriculum_doc_id(grade: int | str) -> str:
     return f"curriculum_class_{g_num}"
 
 
+def extract_chapter_number(chapter_str: str) -> tuple[int, str]:
+    """
+    Extract the numerical chapter index from strings like 'Lesson 1: ...',
+    'Chapter 10: ...', or 'Unit 5 - ...' for stable textbook-order sorting.
+    Returns (chapter_number, raw_string). Unnumbered chapters sort at the end (9999).
+    """
+    if not chapter_str:
+        return (9999, "")
+    # Check for keywords Lesson/Chapter/Unit followed by digits
+    m = re.search(r'\b(?:lesson|chapter|unit|module|topic)\s*(\d+)', chapter_str, re.IGNORECASE)
+    if m:
+        return (int(m.group(1)), chapter_str)
+    # Check for leading number like '1. Spatial Understanding'
+    m2 = re.match(r'^\s*(\d+)[\.:\-\s]', chapter_str)
+    if m2:
+        return (int(m2.group(1)), chapter_str)
+    return (9999, chapter_str)
+
+
+def order_chapters_by_textbook(chapters: list[str]) -> list[str]:
+    """
+    Order chapters strictly according to textbook sequence (1, 2, ... 10).
+    Never sorts alphabetically (which incorrectly places Unit 10 before Unit 2)
+    and never uses an unordered collection.
+    """
+    if not chapters:
+        return []
+    # If the input list is already strictly monotonically ordered by chapter number,
+    # preserve original list order verbatim
+    nums = [extract_chapter_number(ch)[0] for ch in chapters]
+    if all(nums[i] <= nums[i + 1] for i in range(len(nums) - 1)) and all(n != 9999 for n in nums):
+        return list(chapters)
+    # Otherwise sort numerically by textbook chapter number
+    return sorted(chapters, key=extract_chapter_number)
+
+
 def get_chapters_for_class(grade: int | str) -> list[str]:
-    """Return the list of chapters/units for the given grade."""
+    """Return the list of chapters/units for the given grade in strict textbook order."""
     g_num = parse_grade_number(str(grade))
     if g_num is None:
         return []
-    return CURRICULUM_CHAPTERS.get(g_num, [])
+    raw = CURRICULUM_CHAPTERS.get(g_num, [])
+    return order_chapters_by_textbook(raw)
 
 
 def get_midterm_chapters_for_class(grade: int | str) -> list[str]:
-    """Return approximately the first half of chapters for the midterm examination."""
+    """
+    Return the first half of chapters for the midterm examination in textbook order.
+    Uses consistent ceil rounding for odd chapter counts (e.g. 9 -> 5, 10 -> 5).
+    """
     all_ch = get_chapters_for_class(grade)
     if not all_ch:
         return []
-    half_count = math.ceil(len(all_ch) / 2)
+    half_count = math.ceil(len(all_ch) / 2.0)
     return all_ch[:half_count]
 
 
 def get_second_half_chapters_for_class(grade: int | str) -> list[str]:
-    """Return the remaining (forbidden for midterm) chapters."""
+    """
+    Return the remaining (forbidden for midterm) chapters in textbook order.
+    """
     all_ch = get_chapters_for_class(grade)
     if not all_ch:
         return []
-    half_count = math.ceil(len(all_ch) / 2)
+    half_count = math.ceil(len(all_ch) / 2.0)
     return all_ch[half_count:]
 
 

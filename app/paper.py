@@ -50,13 +50,14 @@ def assemble_paper(
     title = f"{grade_display} {request.subject} — {exam_type.display_name}{version_suffix}"
 
     # Ensure every question has its context fields filled
+    permitted = getattr(request, "permitted_units", None)
     for q in questions:
         if not q.grade:
             q.grade = academic_class
         if not q.subject or q.subject == "Mathematics":
             q.subject = request.subject
-        if not q.chapter:
-            q.chapter = request.topic
+        if not q.chapter or q.chapter in ("Mathematics Curriculum", "General Math", "Mathematics"):
+            q.chapter = (permitted[0] if permitted else request.topic) or "Mathematics"
 
     # If sections not provided, construct them using the request blueprint or group by question type
     if not sections:
@@ -140,6 +141,8 @@ def assemble_paper(
         academic_grade=academic_class,
         curriculum_grade=curriculum_class,
         syllabus_scope=request.syllabus_scope,
+        permitted_units=getattr(request, "permitted_units", None),
+        forbidden_units=getattr(request, "forbidden_units", None),
         difficulty=request.difficulty,
         questions=questions,
         num_questions=request.num_questions,

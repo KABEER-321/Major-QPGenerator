@@ -5,6 +5,8 @@
 
 import json
 import logging
+import math
+import re
 import uuid
 from typing import Optional
 
@@ -158,10 +160,91 @@ def _build_source_references(passages: list[Document]) -> list[SourceReference]:
     return refs
 
 
+def is_question_in_forbidden_units(
+    q_dict_or_obj: dict | Question,
+    forbidden_units: list[str] | None,
+    permitted_units: list[str] | None = None,
+) -> tuple[bool, str | None]:
+    """
+    Check if a generated question touches or tests topics from forbidden units
+    (e.g. second-half units in a mid-semester examination).
+    Returns (is_forbidden, reason).
+    """
+    if not forbidden_units:
+        return False, None
+
+    if isinstance(q_dict_or_obj, dict):
+        q_text = str(q_dict_or_obj.get("question_text", "")).lower()
+        q_topic = str(q_dict_or_obj.get("topic", "")).lower()
+        q_chapter = str(q_dict_or_obj.get("chapter", "")).lower()
+        q_ans = str(q_dict_or_obj.get("answer", "")).lower()
+    else:
+        q_text = (q_dict_or_obj.question_text or "").lower()
+        q_topic = (q_dict_or_obj.topic or "").lower()
+        q_chapter = (q_dict_or_obj.chapter or "").lower()
+        q_ans = (q_dict_or_obj.answer or "").lower()
+
+    combined_text = f"{q_chapter} {q_topic} {q_text} {q_ans}"
+
+    for fu in forbidden_units:
+        fu_clean = fu.strip().lower()
+        if not fu_clean:
+            continue
+
+        # 1. Direct match on chapter or topic name
+        if q_chapter and (fu_clean in q_chapter or q_chapter in fu_clean):
+            return True, f"Question chapter '{q_chapter}' explicitly matches forbidden chapter '{fu}'"
+        if q_topic and (fu_clean in q_topic or q_topic in fu_clean):
+            return True, f"Question topic '{q_topic}' matches forbidden chapter '{fu}'"
+
+        # 2. Extract core topic name by stripping 'Lesson X: ', 'Chapter X: ', 'Unit X: '
+        core_topic = re.sub(r'^(?:lesson|chapter|unit|module)\s*\d+[:\.\-\s]*', '', fu_clean).strip()
+        if len(core_topic) > 3:
+            if re.search(rf'\b{re.escape(core_topic)}\b', combined_text):
+                return True, f"Question contains forbidden topic concept '{core_topic}' from '{fu}'"
+
+        # 3. Class 1 Specific Forbidden Concepts (Lessons 6-9)
+        if "subtraction" in fu_clean:
+            if any(w in q_text for w in ["subtract", "subtraction", "minus", "difference between", "take away", "left after giving", "taken away"]):
+                return True, f"Question tests subtraction which belongs to forbidden chapter '{fu}'"
+            if re.search(r'\b\d+\s*[-−]\s*\d+', q_text):
+                return True, f"Question contains subtraction calculation from forbidden chapter '{fu}'"
+
+        if any(term in fu_clean for term in ["number 10", "units and tens", "number 11 to 20"]):
+            if any(w in q_text for w in ["units and tens", "tens and units", "place value of"]):
+                return True, f"Question tests place value from forbidden chapter '{fu}'"
+            large_nums = [int(n) for n in re.findall(r'\b\d+\b', q_text)]
+            if any(10 <= n <= 20 for n in large_nums) and any("digits (1-9)" in p.lower() for p in (permitted_units or [])):
+                return True, f"Question uses numbers 10-20 from forbidden chapter '{fu}'"
+
+        # 4. Class 2 Specific Forbidden Concepts (Lessons 4-6: Subtraction, Multiplication, Division)
+        if "division" in fu_clean and any(w in q_text for w in ["divide", "division", "quotient", "divided by", "equal sharing"]):
+            return True, f"Question tests division from forbidden chapter '{fu}'"
+        if "multiplication" in fu_clean and any(w in q_text for w in ["multiply", "multiplication", "product of", "times"]):
+            return True, f"Question tests multiplication from forbidden chapter '{fu}'"
+
+        # 5. Class 4 Specific Forbidden Concepts (Chapters 6-9: Division, Circles, Mental Arithmetic, Fractional Numbers)
+        if "fraction" in fu_clean and any(w in q_text for w in ["fraction", "numerator", "denominator", "half of", "quarter of"]):
+            return True, f"Question tests fractions from forbidden chapter '{fu}'"
+        if "circle" in fu_clean and any(w in q_text for w in ["circle", "radius", "diameter", "circumference"]):
+            return True, f"Question tests circles from forbidden chapter '{fu}'"
+
+        # 6. Class 5 Specific Forbidden Concepts (Units 6-10: Angles, Circles, Length, Perimeter and Area, Data Handling)
+        if "angles" in fu_clean and any(w in q_text for w in ["angle", "degrees", "acute", "obtuse", "right angle", "protractor"]):
+            return True, f"Question tests angles from forbidden chapter '{fu}'"
+        if "perimeter and area" in fu_clean and any(w in q_text for w in ["perimeter", "area of rectangle", "area of square", "sq cm", "sq m"]):
+            return True, f"Question tests perimeter/area from forbidden chapter '{fu}'"
+        if "data handling" in fu_clean and any(w in q_text for w in ["data handling", "bar graph", "pictograph", "tally marks"]):
+            return True, f"Question tests data handling from forbidden chapter '{fu}'"
+
+    return False, None
+
+
 def _enrich_question(
     question: Question,
     request: PaperGenerateRequest,
     source_refs: list[SourceReference],
+    permitted_units: list[str] | None = None,
 ) -> Question:
     """Populate the identity, context, and traceability fields on a question.
 
@@ -172,7 +255,35 @@ def _enrich_question(
     question.question_id = uuid.uuid4().hex[:10]
     question.grade = request.academic_grade or request.grade
     question.subject = request.subject
-    question.chapter = request.topic  # chapter defaults to the requested topic
+
+    # Resolve specific chapter name from permitted units or question content
+    assigned_ch = None
+    if question.chapter and question.chapter not in ("Mathematics Curriculum", "General Math", "Mathematics"):
+        assigned_ch = question.chapter
+    elif question.topic and question.topic not in ("Mathematics Curriculum", "General Math", "Mathematics"):
+        assigned_ch = question.topic
+
+    if permitted_units:
+        matched_pu = None
+        if assigned_ch:
+            for pu in permitted_units:
+                if pu.lower() in assigned_ch.lower() or assigned_ch.lower() in pu.lower():
+                    matched_pu = pu
+                    break
+        if not matched_pu:
+            q_text_lower = question.question_text.lower()
+            for pu in permitted_units:
+                pu_core = re.sub(r'^(?:Lesson|Chapter|Unit)\s*\d+[:\s\-]*', '', pu, flags=re.IGNORECASE).strip().lower()
+                if pu_core and (pu_core in q_text_lower or any(word in q_text_lower for word in pu_core.split() if len(word) > 3)):
+                    matched_pu = pu
+                    break
+        question.chapter = matched_pu or (permitted_units[0] if permitted_units else request.topic)
+    elif not question.chapter or question.chapter in ("Mathematics Curriculum", "General Math", "Mathematics"):
+        question.chapter = request.topic or "Mathematics"
+
+    if not question.topic or question.topic in ("Mathematics Curriculum", "General Math", "Mathematics"):
+        question.topic = question.chapter or request.topic or "Mathematics"
+
     question.source_references = source_refs
     question.validation_status = ValidationStatus.VALID
     question.math_verification = verify_question_math(question)
@@ -209,6 +320,8 @@ def _generate_section_questions(
     existing_questions: list[Question],
     source_refs: list[SourceReference],
     llm,
+    permitted_units: list[str] | None = None,
+    forbidden_units: list[str] | None = None,
 ) -> list[Question]:
     """
     Generate questions for a single section according to its blueprint.
@@ -232,10 +345,23 @@ def _generate_section_questions(
 - Permitted Syllabus Topics: {scope_str}
 - Focus: Assess fundamental concepts from the previous class."""
     elif exam_type == ExamType.MIDTERM:
+        permitted_list_str = "\n".join(f"  * {ch}" for ch in (permitted_units or []))
+        forbidden_list_str = "\n".join(f"  * {ch}" for ch in (forbidden_units or []))
         exam_header = f"""EXAMINATION TYPE: Mid-Semester Examination
 - Academic Class: {academic_class}
-- Permitted Scope: {scope_str} (First Half of Syllabus Only)
-- STRICT PROHIBITION: Do NOT generate questions outside this mid-semester scope."""
+- Curriculum Class Used: {curriculum_class}
+- Subject: {request.subject}
+
+PERMITTED CHAPTERS (FIRST HALF OF TEXTBOOK ONLY):
+{permitted_list_str if permitted_list_str else f"  * {scope_str}"}
+
+STRICTLY FORBIDDEN CHAPTERS (LAST HALF OF TEXTBOOK - NEVER GENERATE QUESTIONS FROM THESE):
+{forbidden_list_str if forbidden_list_str else "  * Any chapter beyond the first half"}
+
+CRITICAL SYLLABUS ENFORCEMENT RULES:
+1. ONLY generate questions from the PERMITTED CHAPTERS listed above.
+2. ABSOLUTELY ZERO questions from the FORBIDDEN CHAPTERS. Do NOT ask questions involving concepts, numbers, or operations from the later half of the textbook!
+3. For each question, populate the "chapter" field with the exact matching chapter name from the PERMITTED list."""
     else:
         exam_header = f"""EXAMINATION TYPE: Final Examination
 - Academic Class: {academic_class}
@@ -282,7 +408,7 @@ SECTION-SPECIFIC INSTRUCTIONS:
 3. DIVERSITY & NON-DUPLICATION REQUIREMENT: Cover different chapters/concepts across the reference passages (e.g. arithmetic, geometry/shapes, measurement, time/money, patterns, word problems). Do NOT generate repetitive questions with just different numbers.{coherence_rule}
 5. SELF-CONTAINED CLARITY: Every question must contain all information and numbers necessary to solve it. NEVER refer to non-existent visual diagrams, pictures, tables, or figures (do NOT say 'as shown in the figure below', 'look at the diagram', etc.). Do NOT end questions with dangling colons.
 6. AGE APPROPRIATENESS: Strictly suitable for primary school students in {academic_class}.
-7. Ground all questions directly in the REFERENCE PASSAGES below.{existing_summary}
+7. Ground all questions directly in the PERMITTED CHAPTERS from the REFERENCE PASSAGES below. Do NOT touch any forbidden topics.{existing_summary}
 
 REFERENCE PASSAGES:
 {passage_text}
@@ -338,8 +464,16 @@ Return ONLY a JSON array of {needed} question objects."""
                     if "solution" not in q_dict or not q_dict["solution"]:
                         q_dict["solution"] = "Step-by-step solution"
 
+                    # Scope validation check: reject candidates from forbidden units
+                    if forbidden_units:
+                        is_forb, forb_reason = is_question_in_forbidden_units(q_dict, forbidden_units, permitted_units)
+                        if is_forb:
+                            logger.info("Rejecting candidate question for %s: %s", sec.section_id, forb_reason)
+                            rejection_reasons.append(forb_reason)
+                            continue
+
                     q = Question.model_validate(q_dict)
-                    _enrich_question(q, request, source_refs)
+                    _enrich_question(q, request, source_refs, permitted_units)
 
                     # 1. Quality, Clarity & Coherence validation
                     q_ok, q_err = validate_question_quality(q)
@@ -349,7 +483,15 @@ Return ONLY a JSON array of {needed} question objects."""
                         rejection_reasons.append(reason)
                         continue
 
-                    # 2. Deduplication against both prior sections and current section
+                    # 2. Re-verify enriched question doesn't touch forbidden scope
+                    if forbidden_units:
+                        is_forb2, forb_reason2 = is_question_in_forbidden_units(q, forbidden_units, permitted_units)
+                        if is_forb2:
+                            logger.info("Rejecting enriched question for %s: %s", sec.section_id, forb_reason2)
+                            rejection_reasons.append(forb_reason2)
+                            continue
+
+                    # 3. Deduplication against both prior sections and current section
                     is_dup, dup_reason = is_duplicate(q, existing_questions + sec_questions)
                     if is_dup:
                         reason = f"Duplicate detected: {dup_reason}"
@@ -426,6 +568,8 @@ def _regenerate_single_question(
     other_questions: list[Question],
     source_refs: list[SourceReference],
     llm,
+    permitted_units: list[str] | None = None,
+    forbidden_units: list[str] | None = None,
 ) -> Question:
     """
     Regenerate a single question within an existing section to replace a duplicate
@@ -443,13 +587,20 @@ def _regenerate_single_question(
     ]
     forbidden_text = "\n".join(other_lines)
 
+    forbidden_scope_instruction = ""
+    if forbidden_units:
+        forbidden_scope_instruction = (
+            f"\nSTRICT FORBIDDEN TOPICS (NEVER ASK ABOUT THESE): {', '.join(forbidden_units)}\n"
+            f"PERMITTED TOPICS ONLY: {', '.join(permitted_units or [])}\n"
+        )
+
     prompt = f"""Generate EXACTLY ONE replacement question for Section '{target_sec.section_id}' ({target_sec.title}):
 - Class: {academic_class}
 - Subject: {request.subject}
 - Question Type: {target_sec.question_type.value}
 - Marks: {target_mark}
 - Difficulty: {(target_sec.difficulty or request.difficulty or Difficulty.MEDIUM).value}
-
+{forbidden_scope_instruction}
 STRICT CONSTRAINTS:
 1. Question must be of type "{target_sec.question_type.value}" worth exactly {target_mark} marks.
 2. Must be completely self-contained. Do NOT refer to diagrams, figures, or tables.
@@ -496,12 +647,22 @@ Return ONLY a JSON array containing exactly 1 question object."""
                 if "solution" not in q_dict or not q_dict["solution"]:
                     q_dict["solution"] = "Step-by-step solution"
 
+                if forbidden_units:
+                    is_forb, _ = is_question_in_forbidden_units(q_dict, forbidden_units, permitted_units)
+                    if is_forb:
+                        continue
+
                 q = Question.model_validate(q_dict)
-                _enrich_question(q, request, source_refs)
+                _enrich_question(q, request, source_refs, permitted_units)
 
                 q_ok, q_err = validate_question_quality(q)
                 if not q_ok:
                     continue
+
+                if forbidden_units:
+                    is_forb2, _ = is_question_in_forbidden_units(q, forbidden_units, permitted_units)
+                    if is_forb2:
+                        continue
 
                 is_dup, _ = is_duplicate(q, other_questions)
                 if not is_dup:
@@ -518,6 +679,8 @@ def generate_questions(
     request: PaperGenerateRequest,
     passages: list[Document],
     blueprint: Optional[ExamBlueprint] = None,
+    permitted_units: list[str] | None = None,
+    forbidden_units: list[str] | None = None,
 ) -> list[Question]:
     """
     Call Gemini to generate questions and validate them with Pydantic and SymPy.
@@ -527,6 +690,8 @@ def generate_questions(
     blueprint = blueprint or request.get_or_create_blueprint()
     llm = get_llm()
     source_refs = _build_source_references(passages)
+    permitted_units = permitted_units or getattr(request, "permitted_units", None)
+    forbidden_units = forbidden_units or getattr(request, "forbidden_units", None)
 
     # If blueprint has defined sections, generate section by section
     if blueprint and blueprint.sections:
@@ -540,6 +705,8 @@ def generate_questions(
                 existing_questions=all_questions,
                 source_refs=source_refs,
                 llm=llm,
+                permitted_units=permitted_units,
+                forbidden_units=forbidden_units,
             )
             section_map[sec.section_id] = sec_qs
             all_questions.extend(sec_qs)
@@ -586,6 +753,8 @@ def generate_questions(
                                 other_questions=other_qs,
                                 source_refs=source_refs,
                                 llm=llm,
+                                permitted_units=permitted_units,
+                                forbidden_units=forbidden_units,
                             )
                             all_questions[dup_idx] = replacement_q
                             sec_list = section_map[target_sec.section_id]
@@ -598,6 +767,34 @@ def generate_questions(
                         break
                 if dup_found:
                     break
+
+        # Final scope enforcement: strictly verify no questions touch forbidden units
+        if forbidden_units:
+            for idx, q in enumerate(all_questions):
+                is_forb, forb_reason = is_question_in_forbidden_units(q, forbidden_units, permitted_units)
+                if is_forb:
+                    logger.warning("Post-generation detected forbidden question %d: %s. Regenerating...", idx + 1, forb_reason)
+                    target_sec = blueprint.sections[-1]
+                    for sec in blueprint.sections:
+                        if sec.question_type == q.question_type:
+                            target_sec = sec
+                            break
+                    other_qs = [o for o_idx, o in enumerate(all_questions) if o_idx != idx]
+                    try:
+                        replacement_q = _regenerate_single_question(
+                            target_sec=target_sec,
+                            target_mark=q.marks,
+                            request=request,
+                            passages=passages,
+                            other_questions=other_qs,
+                            source_refs=source_refs,
+                            llm=llm,
+                            permitted_units=permitted_units,
+                            forbidden_units=forbidden_units,
+                        )
+                        all_questions[idx] = replacement_q
+                    except Exception as rep_err:
+                        logger.warning("Failed to regenerate forbidden question: %s", rep_err)
 
         return all_questions
 
@@ -689,6 +886,8 @@ def generate_candidate_pool(
     academic_grade: str | None = None,
     curriculum_grade: str | None = None,
     syllabus_scope: str | None = None,
+    permitted_units: list[str] | None = None,
+    forbidden_units: list[str] | None = None,
 ) -> tuple[list[Question], int, int]:
     """
     Generate a pool of candidate questions for all blueprint sections.
@@ -728,10 +927,23 @@ def generate_candidate_pool(
 - Curriculum Class Used: Class {curriculum_class}
 - Focus: Foundational questions from Class {curriculum_class} assessing prerequisite readiness for {academic_class}."""
         elif exam_type == ExamType.MIDTERM:
+            permitted_list_str = "\n".join(f"  * {ch}" for ch in (permitted_units or []))
+            forbidden_list_str = "\n".join(f"  * {ch}" for ch in (forbidden_units or []))
             exam_header = f"""EXAMINATION TYPE: Mid-Semester Examination
 - Academic Class: {academic_class}
-- Permitted Scope: {scope_str} (First Half of Syllabus Only)
-- STRICT PROHIBITION: Do NOT generate questions outside this mid-semester scope."""
+- Curriculum Class Used: {curriculum_class}
+- Subject: {subject}
+
+PERMITTED CHAPTERS (FIRST HALF OF TEXTBOOK ONLY):
+{permitted_list_str if permitted_list_str else f"  * {scope_str}"}
+
+STRICTLY FORBIDDEN CHAPTERS (LAST HALF OF TEXTBOOK - DO NOT TOUCH):
+{forbidden_list_str if forbidden_list_str else "  * Any chapter beyond the first half"}
+
+CRITICAL SYLLABUS ENFORCEMENT RULES:
+1. ONLY generate questions from the PERMITTED CHAPTERS listed above.
+2. ABSOLUTELY ZERO questions from the FORBIDDEN CHAPTERS. Do NOT ask questions involving concepts, numbers, or operations from the later half of the textbook!
+3. For each question, populate the "chapter" field with the exact matching chapter name from the PERMITTED list."""
         else:
             exam_header = f"""EXAMINATION TYPE: Final Examination
 - Academic Class: {academic_class}
@@ -786,14 +998,46 @@ Return ONLY a JSON array of {target_count} question objects."""
                         if "marks" not in q_dict or not isinstance(q_dict["marks"], int) or q_dict["marks"] <= 0:
                             q_dict["marks"] = typical_mark
 
+                        if forbidden_units:
+                            is_forb, _ = is_question_in_forbidden_units(q_dict, forbidden_units, permitted_units)
+                            if is_forb:
+                                continue
+
                         q = Question.model_validate(q_dict)
                         # Enrich
                         q.question_id = uuid.uuid4().hex[:10]
                         q.grade = grade
                         q.subject = subject
-                        q.chapter = topic
                         q.source_references = source_refs
                         q.validation_status = ValidationStatus.VALID
+
+                        # Resolve chapter
+                        if permitted_units:
+                            matched_pu = None
+                            if q.chapter and q.chapter not in ("Mathematics Curriculum", "General Math", "Mathematics"):
+                                for pu in permitted_units:
+                                    if pu.lower() in q.chapter.lower() or q.chapter.lower() in pu.lower():
+                                        matched_pu = pu
+                                        break
+                            if not matched_pu:
+                                q_text_lower = q.question_text.lower()
+                                for pu in permitted_units:
+                                    pu_core = re.sub(r'^(?:Lesson|Chapter|Unit)\s*\d+[:\s\-]*', '', pu, flags=re.IGNORECASE).strip().lower()
+                                    if pu_core and (pu_core in q_text_lower or any(word in q_text_lower for word in pu_core.split() if len(word) > 3)):
+                                        matched_pu = pu
+                                        break
+                            q.chapter = matched_pu or (permitted_units[0] if permitted_units else topic)
+                        else:
+                            q.chapter = topic
+
+                        if not q.topic or q.topic in ("Mathematics Curriculum", "General Math", "Mathematics"):
+                            q.topic = q.chapter or topic
+
+                        # Re-verify candidate after enrichment
+                        if forbidden_units:
+                            is_forb2, _ = is_question_in_forbidden_units(q, forbidden_units, permitted_units)
+                            if is_forb2:
+                                continue
 
                         # SymPy math verification
                         q.math_verification = verify_question_math(q)

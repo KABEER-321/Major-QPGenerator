@@ -470,6 +470,8 @@ def resolve_curriculum_and_passages(
         request.curriculum_grade = format_grade_display(prev_class)
         request.academic_grade = format_grade_display(academic_class)
         chapters = get_chapters_for_class(target_grade_num) if target_grade_num else (target_doc.units or [])
+        request.permitted_units = chapters
+        request.forbidden_units = []
         request.syllabus_scope = (
             request.syllabus_scope
             or (
@@ -534,6 +536,9 @@ def resolve_curriculum_and_passages(
                 first_half_units = []
                 forbidden_units = []
 
+        request.permitted_units = first_half_units
+        request.forbidden_units = forbidden_units
+
         if request.syllabus_scope:
             scope_str = request.syllabus_scope
         elif first_half_units:
@@ -597,6 +602,8 @@ def resolve_curriculum_and_passages(
                 )
             chapters = target_doc.units or []
 
+        request.permitted_units = chapters
+        request.forbidden_units = []
         request.syllabus_scope = (
             request.syllabus_scope
             or (
@@ -640,7 +647,13 @@ def generate_paper(request: PaperGenerateRequest):
 
     # Generate questions with Gemini
     try:
-        questions = generate_questions(request, passages, blueprint=blueprint)
+        questions = generate_questions(
+            request=request,
+            passages=passages,
+            blueprint=blueprint,
+            permitted_units=request.permitted_units,
+            forbidden_units=forbidden_units,
+        )
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
@@ -703,6 +716,8 @@ def generate_batch_papers(request: BatchPaperGenerateRequest):
             academic_grade=request.academic_grade,
             curriculum_grade=request.curriculum_grade,
             syllabus_scope=request.syllabus_scope,
+            permitted_units=request.permitted_units,
+            forbidden_units=forbidden_units,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
