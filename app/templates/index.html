@@ -26,9 +26,9 @@
       --text-dim: #94a3b8;
       
       /* Primary Educational Sapphire Accent */
-      --accent-primary: #1d4ed8;
-      --accent-hover: #1e40af;
-      --accent-active: #1e3a8a;
+      --accent-primary: #2563eb;
+      --accent-hover: #1d4ed8;
+      --accent-active: #1e40af;
       --accent-subtle: #eff6ff;
       --accent-border: #bfdbfe;
       
@@ -47,12 +47,12 @@
       
       /* Geometry & Elevation */
       --radius-sm: 6px;
-      --radius-md: 10px;
-      --radius-lg: 14px;
-      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
       --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
       --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.06), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
-      --shadow-paper: 0 1px 3px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.05);
+      --shadow-paper: 0 1px 3px 0 rgba(0, 0, 0, 0.06), 0 4px 12px 0 rgba(0, 0, 0, 0.03);
     }
 
     * {
@@ -75,7 +75,7 @@
     .app-wrapper {
       max-width: 1440px;
       margin: 0 auto;
-      padding: 0 24px 64px 24px;
+      padding: 0 20px 48px 20px;
     }
 
     /* Top Navigation Bar */
@@ -85,13 +85,13 @@
       position: sticky;
       top: 0;
       z-index: 100;
-      margin-bottom: 24px;
+      margin-bottom: 20px;
     }
 
     .header-inner {
       max-width: 1440px;
       margin: 0 auto;
-      padding: 14px 24px;
+      padding: 10px 20px;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -101,12 +101,12 @@
     .brand-group {
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 12px;
     }
 
     .brand-icon {
-      width: 40px;
-      height: 40px;
+      width: 34px;
+      height: 34px;
       background: var(--accent-primary);
       color: #ffffff;
       border-radius: var(--radius-sm);
@@ -114,59 +114,63 @@
       align-items: center;
       justify-content: center;
       font-weight: 800;
-      font-size: 18px;
-      letter-spacing: -0.03em;
-      box-shadow: 0 2px 4px rgba(29, 78, 216, 0.25);
+      font-size: 15px;
+      letter-spacing: -0.02em;
+      flex-shrink: 0;
     }
 
     .brand-text h1 {
-      font-size: 18px;
+      font-size: 16px;
       font-weight: 700;
       color: var(--text-primary);
       letter-spacing: -0.02em;
       display: flex;
       align-items: center;
       gap: 8px;
+      line-height: 1.2;
     }
 
     .version-tag {
-      font-size: 11px;
+      font-size: 10.5px;
       font-weight: 600;
-      padding: 2px 8px;
+      padding: 1.5px 7px;
       border-radius: 999px;
       background: var(--bg-subtle);
       border: 1px solid var(--border-light);
       color: var(--text-secondary);
+      line-height: 1.3;
     }
 
     .brand-text p {
-      font-size: 12px;
+      font-size: 11.5px;
       color: var(--text-muted);
       font-weight: 400;
+      margin-top: 1px;
     }
 
     .header-actions {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
     }
 
     .status-indicator {
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 500;
-      padding: 5px 12px;
+      padding: 4px 10px;
       border-radius: 999px;
       background: var(--success-bg);
       border: 1px solid var(--success-border);
       color: var(--success-text);
+      line-height: 1.2;
     }
 
     .status-dot {
-      width: 7px;
-      height: 7px;
+      width: 6.5px;
+      height: 6.5px;
       border-radius: 50%;
       background: var(--success-text);
     }
@@ -175,16 +179,18 @@
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 600;
       color: var(--text-secondary);
       background: var(--bg-surface);
       border: 1px solid var(--border-medium);
-      padding: 7px 14px;
+      padding: 0 12px;
+      height: 32px;
       border-radius: var(--radius-sm);
       text-decoration: none;
       cursor: pointer;
       transition: all 0.15s ease;
+      line-height: 1;
     }
 
     .btn-header:hover {
@@ -198,8 +204,8 @@
       background: var(--bg-surface);
       border: 1px solid var(--border-light);
       border-radius: var(--radius-md);
-      padding: 16px 20px;
-      margin-bottom: 24px;
+      padding: 12px 16px;
+      margin-bottom: 20px;
       box-shadow: var(--shadow-sm);
     }
 
@@ -207,35 +213,37 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
 
     .curriculum-title-wrap {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
     }
 
     .curriculum-icon-badge {
-      width: 28px;
-      height: 28px;
-      border-radius: var(--radius-sm);
+      width: 24px;
+      height: 24px;
+      border-radius: 5px;
       background: var(--accent-subtle);
       color: var(--accent-primary);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 14px;
+      font-size: 12px;
+      flex-shrink: 0;
     }
 
     .curriculum-title {
-      font-size: 14px;
+      font-size: 13.5px;
       font-weight: 700;
       color: var(--text-primary);
+      letter-spacing: -0.01em;
     }
 
     .curriculum-subtitle {
-      font-size: 12px;
+      font-size: 11.5px;
       color: var(--text-muted);
       margin-left: 6px;
     }
@@ -243,23 +251,24 @@
     .curriculum-classes-row {
       display: grid;
       grid-template-columns: repeat(5, 1fr);
-      gap: 12px;
+      gap: 10px;
     }
 
     .class-status-pill {
-      background: var(--bg-subtle);
+      background: #ffffff;
       border: 1px solid var(--border-light);
       border-radius: var(--radius-sm);
-      padding: 10px 12px;
+      padding: 8px 12px;
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 3px;
+      box-shadow: var(--shadow-sm);
       transition: all 0.15s ease;
     }
 
     .class-status-pill:hover {
       border-color: var(--border-medium);
-      background: #ffffff;
+      box-shadow: var(--shadow-md);
     }
 
     .class-pill-top {
@@ -269,7 +278,7 @@
     }
 
     .class-name-label {
-      font-size: 13px;
+      font-size: 12.5px;
       font-weight: 700;
       color: var(--text-primary);
     }
@@ -277,16 +286,18 @@
     .class-meta-label {
       font-size: 11px;
       color: var(--text-muted);
+      line-height: 1.2;
     }
 
     .pill-badge {
-      font-size: 10px;
+      font-size: 9.5px;
       font-weight: 600;
-      padding: 2px 6px;
+      padding: 1.5px 6px;
       border-radius: 4px;
       display: inline-flex;
       align-items: center;
       gap: 3px;
+      line-height: 1.3;
     }
 
     .pill-badge.ready {
@@ -304,8 +315,8 @@
     /* Main Workspace Grid */
     .workspace-grid {
       display: grid;
-      grid-template-columns: 420px 1fr;
-      gap: 24px;
+      grid-template-columns: 380px 1fr;
+      gap: 20px;
       align-items: start;
     }
 
@@ -318,32 +329,34 @@
     }
 
     .panel-header {
-      padding: 18px 20px 14px 20px;
+      padding: 14px 18px 12px 18px;
       border-bottom: 1px solid var(--border-light);
     }
 
     .panel-title {
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 700;
       color: var(--text-primary);
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 7px;
+      letter-spacing: -0.01em;
     }
 
     .panel-subtitle {
-      font-size: 12px;
+      font-size: 11.5px;
       color: var(--text-muted);
       margin-top: 2px;
+      line-height: 1.3;
     }
 
     .panel-body {
-      padding: 20px;
+      padding: 16px 18px 18px 18px;
     }
 
     /* Form Styles */
     .form-group {
-      margin-bottom: 16px;
+      margin-bottom: 14px;
     }
 
     .form-group:last-child {
@@ -352,21 +365,23 @@
 
     label.field-label {
       display: block;
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 600;
       color: var(--text-secondary);
-      margin-bottom: 6px;
+      margin-bottom: 5px;
+      letter-spacing: -0.01em;
     }
 
     select.form-control,
     input[type="text"].form-control,
     input[type="number"].form-control {
       width: 100%;
+      height: 36px;
       background: #ffffff;
       border: 1px solid var(--border-medium);
       border-radius: var(--radius-sm);
-      padding: 9px 12px;
-      font-size: 13px;
+      padding: 0 10px;
+      font-size: 12.5px;
       color: var(--text-primary);
       font-family: inherit;
       outline: none;
@@ -377,24 +392,24 @@
     input[type="text"].form-control:focus,
     input[type="number"].form-control:focus {
       border-color: var(--accent-primary);
-      box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.12);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
     }
 
     .form-row-2 {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 12px;
+      gap: 10px;
     }
 
     /* Scope Guidance Box */
     .scope-callout {
-      margin-top: 8px;
-      padding: 10px 12px;
+      margin-top: 6px;
+      padding: 8px 11px;
       border-radius: var(--radius-sm);
       background: var(--accent-subtle);
       border: 1px solid var(--accent-border);
-      font-size: 12px;
-      line-height: 1.45;
+      font-size: 11px;
+      line-height: 1.4;
       color: var(--text-secondary);
     }
 
@@ -406,7 +421,7 @@
     .segmented-control {
       display: flex;
       background: var(--bg-subtle);
-      padding: 3px;
+      padding: 2.5px;
       border-radius: var(--radius-sm);
       border: 1px solid var(--border-light);
       gap: 2px;
@@ -414,16 +429,19 @@
 
     .segmented-btn {
       flex: 1;
-      padding: 6px 10px;
+      height: 28px;
+      padding: 0 8px;
       border: none;
       background: transparent;
       color: var(--text-muted);
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 600;
       border-radius: 4px;
       cursor: pointer;
       transition: all 0.15s ease;
-      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
     .segmented-btn:hover {
@@ -441,9 +459,9 @@
     .checkbox-stack {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 7px;
       background: var(--bg-subtle);
-      padding: 12px;
+      padding: 9px 11px;
       border-radius: var(--radius-sm);
       border: 1px solid var(--border-light);
     }
@@ -451,8 +469,8 @@
     .checkbox-item {
       display: flex;
       align-items: center;
-      gap: 10px;
-      font-size: 13px;
+      gap: 8px;
+      font-size: 12px;
       color: var(--text-secondary);
       cursor: pointer;
       font-weight: 500;
@@ -460,8 +478,8 @@
     }
 
     .checkbox-item input[type="checkbox"] {
-      width: 16px;
-      height: 16px;
+      width: 15px;
+      height: 15px;
       accent-color: var(--accent-primary);
       cursor: pointer;
     }
@@ -469,13 +487,14 @@
     /* Primary Generate Button */
     .btn-generate-solid {
       width: 100%;
-      margin-top: 18px;
-      padding: 12px 18px;
+      height: 40px;
+      margin-top: 15px;
+      padding: 0 16px;
       border: none;
       border-radius: var(--radius-sm);
       background: var(--accent-primary);
       color: #ffffff;
-      font-size: 14px;
+      font-size: 13.5px;
       font-weight: 600;
       letter-spacing: -0.01em;
       cursor: pointer;
@@ -505,8 +524,8 @@
 
     /* Spinner */
     .spinner-sm {
-      width: 16px;
-      height: 16px;
+      width: 15px;
+      height: 15px;
       border: 2px solid rgba(255, 255, 255, 0.4);
       border-top-color: #ffffff;
       border-radius: 50%;
@@ -523,7 +542,7 @@
       border: 1px solid var(--border-light);
       border-radius: var(--radius-md);
       box-shadow: var(--shadow-sm);
-      min-height: 640px;
+      min-height: 560px;
       display: flex;
       flex-direction: column;
     }
@@ -535,14 +554,14 @@
       align-items: center;
       justify-content: center;
       text-align: center;
-      padding: 64px 32px;
+      padding: 56px 24px;
       margin: auto;
-      max-width: 480px;
+      max-width: 440px;
     }
 
     .empty-symbol {
-      width: 56px;
-      height: 56px;
+      width: 48px;
+      height: 48px;
       border-radius: 50%;
       background: var(--bg-subtle);
       border: 1px solid var(--border-medium);
@@ -550,19 +569,20 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 26px;
-      margin-bottom: 16px;
+      font-size: 22px;
+      margin-bottom: 12px;
     }
 
     .empty-heading {
-      font-size: 16px;
+      font-size: 15px;
       font-weight: 700;
       color: var(--text-primary);
-      margin-bottom: 6px;
+      margin-bottom: 5px;
+      letter-spacing: -0.01em;
     }
 
     .empty-caption {
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text-muted);
       line-height: 1.5;
     }
@@ -576,14 +596,14 @@
 
     /* Paper Action Toolbar */
     .paper-toolbar {
-      padding: 14px 20px;
+      padding: 10px 16px;
       background: #ffffff;
       border-bottom: 1px solid var(--border-light);
       display: flex;
       justify-content: space-between;
       align-items: center;
       flex-wrap: wrap;
-      gap: 12px;
+      gap: 10px;
       border-top-left-radius: var(--radius-md);
       border-top-right-radius: var(--radius-md);
     }
@@ -592,22 +612,25 @@
     .view-segmented-wrap {
       display: flex;
       background: var(--bg-subtle);
-      padding: 3px;
+      padding: 2.5px;
       border-radius: var(--radius-sm);
       border: 1px solid var(--border-light);
       gap: 2px;
     }
 
     .view-tab-btn {
-      padding: 6px 14px;
+      height: 28px;
+      padding: 0 12px;
       border: none;
       background: transparent;
       color: var(--text-muted);
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 600;
       border-radius: 4px;
       cursor: pointer;
       transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
     }
 
     .view-tab-btn.active {
@@ -628,13 +651,15 @@
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 600;
-      padding: 6px 12px;
+      height: 30px;
+      padding: 0 12px;
       border-radius: var(--radius-sm);
       text-decoration: none;
       cursor: pointer;
       transition: all 0.15s ease;
+      line-height: 1;
     }
 
     .btn-pdf-action.primary {
@@ -661,18 +686,20 @@
 
     /* Formal Assessment Document Sheet */
     .paper-sheet-container {
-      padding: 24px;
-      background: var(--bg-subtle);
+      padding: 20px 24px;
+      background: #f8fafc;
       flex: 1;
+      border-bottom-left-radius: var(--radius-md);
+      border-bottom-right-radius: var(--radius-md);
     }
 
     .formal-exam-document {
       background: #ffffff;
       border: 1px solid var(--border-medium);
       border-radius: var(--radius-sm);
-      padding: 36px 40px;
+      padding: 32px 36px;
       box-shadow: var(--shadow-paper);
-      max-width: 900px;
+      max-width: 860px;
       margin: 0 auto;
     }
 
@@ -680,26 +707,26 @@
     .doc-institutional-header {
       text-align: center;
       border-bottom: 2px solid var(--text-primary);
-      padding-bottom: 16px;
-      margin-bottom: 20px;
+      padding-bottom: 14px;
+      margin-bottom: 18px;
     }
 
     .doc-exam-title {
-      font-size: 19px;
+      font-size: 17px;
       font-weight: 800;
       color: var(--text-primary);
       text-transform: uppercase;
       letter-spacing: 0.02em;
-      margin-bottom: 4px;
+      margin-bottom: 3px;
     }
 
     .doc-meta-table {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
       gap: 8px;
-      font-size: 12px;
-      margin-top: 12px;
-      padding-top: 10px;
+      font-size: 11.5px;
+      margin-top: 10px;
+      padding-top: 8px;
       border-top: 1px solid var(--border-light);
       text-align: left;
     }
@@ -707,7 +734,7 @@
     .doc-meta-item strong {
       color: var(--text-muted);
       display: block;
-      font-size: 10px;
+      font-size: 9.5px;
       text-transform: uppercase;
       letter-spacing: 0.03em;
     }
@@ -715,19 +742,19 @@
     .doc-meta-item span {
       color: var(--text-primary);
       font-weight: 600;
-      font-size: 12px;
+      font-size: 11.5px;
     }
 
     /* Student Information Bar */
     .student-info-bar {
       border: 1px dashed var(--border-medium);
       border-radius: var(--radius-sm);
-      padding: 10px 14px;
-      font-size: 12px;
-      margin-bottom: 20px;
+      padding: 9px 12px;
+      font-size: 11.5px;
+      margin-bottom: 18px;
       display: grid;
       grid-template-columns: 2fr 1fr 1fr;
-      gap: 16px;
+      gap: 14px;
       background: #ffffff;
       color: var(--text-muted);
     }
@@ -737,10 +764,10 @@
       background: var(--bg-subtle);
       border: 1px solid var(--border-light);
       border-radius: var(--radius-sm);
-      padding: 10px 14px;
-      font-size: 12px;
+      padding: 9px 12px;
+      font-size: 11.5px;
       color: var(--text-secondary);
-      margin-bottom: 24px;
+      margin-bottom: 20px;
       line-height: 1.45;
     }
 
@@ -751,47 +778,47 @@
     /* Section Banner */
     .section-banner {
       background: var(--bg-subtle);
-      border-left: 4px solid var(--accent-primary);
+      border-left: 3px solid var(--accent-primary);
       border-top: 1px solid var(--border-light);
       border-right: 1px solid var(--border-light);
       border-bottom: 1px solid var(--border-light);
       border-radius: var(--radius-sm);
-      padding: 12px 16px;
-      margin: 28px 0 16px 0;
+      padding: 9px 14px;
+      margin: 20px 0 12px 0;
       display: flex;
       justify-content: space-between;
       align-items: center;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 6px;
     }
 
     .section-banner-title {
-      font-size: 14px;
+      font-size: 13.5px;
       font-weight: 700;
       color: var(--text-primary);
     }
 
     .section-banner-marks {
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 600;
       background: #ffffff;
       border: 1px solid var(--border-medium);
-      padding: 3px 8px;
+      padding: 2.5px 7px;
       border-radius: 4px;
       color: var(--accent-primary);
     }
 
     .section-banner-instructions {
       width: 100%;
-      font-size: 11px;
+      font-size: 10.5px;
       color: var(--text-muted);
       font-style: italic;
-      margin-top: 2px;
+      margin-top: 1px;
     }
 
     /* Formal Question Card */
     .formal-question-block {
-      padding: 14px 0;
+      padding: 12px 0;
       border-bottom: 1px solid var(--border-light);
     }
 
@@ -803,54 +830,54 @@
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      margin-bottom: 6px;
+      margin-bottom: 5px;
     }
 
     .q-number-bold {
       font-weight: 700;
-      font-size: 13px;
+      font-size: 12.5px;
       color: var(--text-primary);
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
     }
 
     .q-type-pill {
-      font-size: 10px;
+      font-size: 9.5px;
       font-weight: 600;
       color: var(--text-muted);
       background: var(--bg-subtle);
       border: 1px solid var(--border-light);
-      padding: 1px 6px;
+      padding: 1px 5px;
       border-radius: 3px;
       text-transform: uppercase;
     }
 
     .q-marks-tag {
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 700;
       color: var(--text-primary);
       font-family: 'JetBrains Mono', monospace;
     }
 
     .q-body-text {
-      font-size: 13.5px;
-      line-height: 1.6;
+      font-size: 13px;
+      line-height: 1.55;
       color: var(--text-primary);
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
 
     /* Formal Options Layout */
     .formal-options-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 8px 16px;
-      margin-bottom: 12px;
+      gap: 6px 12px;
+      margin-bottom: 10px;
     }
 
     .formal-opt-box {
-      font-size: 13px;
-      padding: 6px 10px;
+      font-size: 12.5px;
+      padding: 5px 10px;
       border-radius: 4px;
       background: var(--bg-subtle);
       border: 1px solid var(--border-light);
@@ -874,56 +901,56 @@
 
     /* Student Workspace Lines */
     .student-working-space {
-      margin-top: 10px;
+      margin-top: 8px;
       border: 1px dashed var(--border-medium);
       border-radius: 4px;
       background: #fafafa;
     }
 
     .student-working-space.compact {
-      height: 70px;
+      height: 60px;
       display: flex;
       align-items: flex-end;
-      padding: 6px 10px;
+      padding: 5px 8px;
     }
 
     .student-working-space.large {
-      height: 120px;
+      height: 100px;
       display: flex;
       align-items: flex-end;
-      padding: 6px 10px;
+      padding: 5px 8px;
     }
 
     .workspace-watermark {
-      font-size: 11px;
+      font-size: 10.5px;
       color: var(--text-dim);
       font-style: italic;
     }
 
     /* Teacher Solution Box */
     .teacher-solution-panel {
-      margin-top: 12px;
-      padding: 12px 14px;
+      margin-top: 10px;
+      padding: 10px 12px;
       background: #f8fafc;
       border: 1px solid var(--border-medium);
       border-left: 3px solid var(--accent-primary);
       border-radius: 4px;
-      font-size: 12px;
+      font-size: 11.5px;
     }
 
     .teacher-solution-title {
       font-weight: 700;
       color: var(--accent-primary);
       text-transform: uppercase;
-      font-size: 10px;
+      font-size: 9.5px;
       letter-spacing: 0.03em;
-      margin-bottom: 4px;
+      margin-bottom: 3px;
     }
 
     .teacher-expected-ans {
       font-weight: 600;
       color: var(--text-primary);
-      margin-bottom: 4px;
+      margin-bottom: 3px;
     }
 
     .teacher-step-text {
@@ -946,14 +973,14 @@
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      font-size: 10px;
+      font-size: 9.5px;
       font-weight: 600;
       background: var(--success-bg);
       border: 1px solid var(--success-border);
       color: var(--success-text);
-      padding: 2px 6px;
+      padding: 1.5px 5px;
       border-radius: 3px;
-      margin-top: 6px;
+      margin-top: 4px;
     }
 
     /* Saved Papers Drawer / Modal */
@@ -984,7 +1011,7 @@
     }
 
     .drawer-header {
-      padding: 16px 20px;
+      padding: 14px 18px;
       border-bottom: 1px solid var(--border-light);
       display: flex;
       justify-content: space-between;
@@ -992,7 +1019,7 @@
     }
 
     .drawer-title {
-      font-size: 16px;
+      font-size: 15px;
       font-weight: 700;
       color: var(--text-primary);
     }
@@ -1011,17 +1038,17 @@
     }
 
     .drawer-body {
-      padding: 16px 20px;
+      padding: 14px 18px;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 8px;
     }
 
     .saved-paper-row {
       border: 1px solid var(--border-light);
       border-radius: var(--radius-sm);
-      padding: 12px 14px;
+      padding: 10px 12px;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -1038,13 +1065,13 @@
       position: fixed;
       bottom: 24px;
       right: 24px;
-      padding: 12px 18px;
+      padding: 10px 16px;
       border-radius: var(--radius-sm);
       background: var(--text-primary);
       color: #ffffff;
       box-shadow: var(--shadow-lg);
       z-index: 1000;
-      font-size: 13px;
+      font-size: 12.5px;
       font-weight: 500;
       display: none;
       align-items: center;
@@ -1065,9 +1092,10 @@
     @media (max-width: 1080px) {
       .workspace-grid {
         grid-template-columns: 1fr;
+        gap: 16px;
       }
       .curriculum-classes-row {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
       }
     }
 
@@ -1075,15 +1103,32 @@
       .header-inner {
         flex-direction: column;
         align-items: flex-start;
+        padding: 10px 16px;
+        gap: 10px;
+      }
+      .header-actions {
+        width: 100%;
+        justify-content: space-between;
+        flex-wrap: wrap;
       }
       .curriculum-classes-row {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(2, 1fr);
       }
       .doc-meta-table {
         grid-template-columns: 1fr 1fr;
       }
       .formal-exam-document {
-        padding: 20px 16px;
+        padding: 18px 14px;
+      }
+      .paper-sheet-container {
+        padding: 12px;
+      }
+      .formal-options-grid {
+        grid-template-columns: 1fr;
+      }
+      .student-info-bar {
+        grid-template-columns: 1fr;
+        gap: 8px;
       }
     }
   </style>
@@ -1129,7 +1174,7 @@
             <span class="curriculum-subtitle">Karnataka State Mathematics Curriculum (Classes 1–5)</span>
           </div>
         </div>
-        <span class="pill-badge ready" id="curriculum-summary-badge" style="font-size: 11px; padding: 4px 10px;">
+        <span class="pill-badge ready" id="curriculum-summary-badge">
           5/5 Ready
         </span>
       </div>
