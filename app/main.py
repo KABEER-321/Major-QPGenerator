@@ -50,6 +50,7 @@ from app.paper import (
     list_papers,
     delete_paper,
 )
+from app.validator import validate_full_paper
 from app.pdf_export import generate_pdf
 from app.documents_store import (
     save_document_record,
@@ -663,6 +664,9 @@ def generate_paper(request: PaperGenerateRequest):
             questions=questions,
             blueprint_id=blueprint.blueprint_id,
         )
+        is_valid, validation_errors = validate_full_paper(paper)
+        if not is_valid:
+            logger.warning("Paper %s generated with validation issues: %s", paper.paper_id, validation_errors)
         save_paper(paper)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -758,6 +762,9 @@ def generate_batch_papers(request: BatchPaperGenerateRequest):
             num_versions=request.num_versions,
             blueprint_id=blueprint.blueprint_id,
         )
+        is_valid, validation_errors = validate_full_paper(paper)
+        if not is_valid:
+            logger.warning("Batch paper version %d has validation warnings: %s", v_num, validation_errors)
         save_paper(paper)
         saved_papers.append(paper)
         paper_ids.append(paper.paper_id)

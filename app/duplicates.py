@@ -1,9 +1,11 @@
 # app/duplicates.py
 # Question text normalization, duplicate and near-duplicate detection,
-# and candidate pool selection for QPGen.
+# concept/scenario collision detection, and candidate pool selection for QPGen.
+
+from __future__ import annotations
 
 import re
-from typing import Optional
+from typing import Optional, Union
 
 from app.schemas import (
     Question,
@@ -30,6 +32,69 @@ class CandidatePoolShortageError(Exception):
         self.available = available
 
 
+# Common English stopwords to ignore when analyzing mathematical story templates
+STOPWORDS = {
+    "a", "an", "the", "and", "or", "in", "on", "at", "to", "for", "of", "with",
+    "by", "from", "as", "is", "are", "was", "were", "be", "been", "being", "have",
+    "has", "had", "do", "does", "did", "if", "then", "he", "she", "it", "they",
+    "his", "her", "their", "him", "them", "who", "which", "what", "how", "much",
+    "many", "find", "calculate", "determine", "evaluate", "solve", "following",
+    "given", "each", "every", "all", "some", "any", "there", "this", "that", "these",
+    "those", "also", "into", "out", "up", "down", "about", "did", "does",
+}
+
+# Domain scenario clusters for word problems.
+# If two questions match the same specific scenario cluster, they are assessing
+# the exact same real-world story template (e.g. bank deposit, factory production, village population).
+SCENARIO_CLUSTERS = [
+    {
+        "name": "Banking & Deposit",
+        "primary": {"bank", "deposit", "deposited", "account", "savings", "passbook", "withdrew", "withdrawal"},
+        "min_matches": 2,
+    },
+    {
+        "name": "Factory Production & Inventory",
+        "primary": {"factory", "manufactured", "manufacturing", "produced", "cartons", "soap", "warehouse", "packets", "shipped"},
+        "min_matches": 2,
+    },
+    {
+        "name": "Village & Population Demographics",
+        "primary": {"village", "town", "city", "population", "inhabitants", "residents", "census"},
+        "secondary": {"men", "women", "children", "males", "females", "adults", "people"},
+        "min_matches": 2,
+    },
+    {
+        "name": "Train & Railway Travel",
+        "primary": {"train", "locomotive", "railway", "platform", "express", "departed", "departure", "arrived", "arrival"},
+        "min_matches": 2,
+    },
+    {
+        "name": "Vessel & Liquid Capacity",
+        "primary": {"vessel", "tumbler", "bucket", "jug", "liters", "litres", "milliliters", "millilitres", "capacity"},
+        "min_matches": 2,
+    },
+    {
+        "name": "Field Fencing & Boundary Perimeter",
+        "primary": {"fencing", "fence", "barbed", "around a field", "around the field", "rectangular field", "cost per meter", "cost per metre"},
+        "min_matches": 2,
+    },
+    {
+        "name": "Election & Voting Margin",
+        "primary": {"election", "votes", "polled", "candidate", "majority", "margin", "defeated"},
+        "min_matches": 2,
+    },
+]
+
+
+def _simple_stem(word: str) -> str:
+    """Lightweight suffix stemming for primary math vocabulary."""
+    w = word.lower()
+    for suffix in ("ing", "ed", "es", "s"):
+        if w.endswith(suffix) and len(w) > len(suffix) + 2:
+            return w[: -len(suffix)]
+    return w
+
+
 def normalize_question_text(text: str) -> str:
     """
     Normalize question text for duplicate detection.
@@ -45,6 +110,7 @@ def normalize_question_text(text: str) -> str:
     # 2. Normalize math symbols
     s = s.replace("²", "^2").replace("³", "^3").replace("⁴", "^4")
     s = s.replace("×", "*").replace("÷", "/").replace("−", "-").replace("±", "+-")
+    s = s.replace("₹", "rs ").replace("Rs.", "rs ").replace("Rs", "rs ")
 
     # 3. Lowercase
     s = s.lower()
@@ -69,6 +135,52 @@ def normalize_question_text(text: str) -> str:
     # 6. Normalize whitespace
     s = re.sub(r"\s+", " ", s).strip()
     return s
+
+
+def mask_numbers_and_names(text: str) -> str:
+    """
+    Mask all numerical quantities into <NUM> and stem words to expose underlying template.
+    E.g.: 'A factory produced 45,000 soap boxes...' -> 'factory produce <NUM> soap box...'
+    """
+    norm = normalize_question_text(text)
+    # Replace numbers (including comma-separated numbers) with <num>
+    norm = re.sub(r"\b\d+(?:,\d+)*(?:\.\d+)?\b", "<num>", norm)
+    tokens = norm.split()
+    stemmed = [_simple_stem(t) for t in tokens if t not in STOPWORDS]
+    return " ".join(stemmed)
+
+
+def identify_scenario_cluster(text: str) -> Optional[str]:
+    """
+    Check if a question belongs to a known word-problem scenario cluster.
+    Returns cluster name if matched, else None.
+    """
+    norm = text.lower()
+    tokens = set(re.findall(r"[a-z]+", norm))
+
+    for sc in SCENARIO_CLUSTERS:
+        name = sc["name"]
+        primary = sc["primary"]
+        min_m = sc.get("min_matches", 2)
+        # Check primary token matches or phrase matches
+        matches = 0
+        for p in primary:
+            if " " in p:
+                if p in norm:
+                    matches += 1
+            elif p in tokens or _simple_stem(p) in tokens:
+                matches += 1
+
+        if "secondary" in sc:
+            secondary = sc["secondary"]
+            sec_matches = sum(1 for s in secondary if s in tokens or _simple_stem(s) in tokens)
+            if matches >= 1 and sec_matches >= 1 and (matches + sec_matches) >= min_m:
+                return name
+
+        if matches >= min_m:
+            return name
+
+    return None
 
 
 def _token_jaccard(tokens1: set[str], tokens2: set[str]) -> float:
@@ -113,48 +225,93 @@ def calculate_similarity(text1: str, text2: str) -> float:
     return max(tok_sim, ngram_sim)
 
 
+def calculate_template_similarity(text1: str, text2: str) -> float:
+    """
+    Calculate structural template similarity with numbers masked.
+    Catches questions that test identical problems with altered numbers or names.
+    Excludes generic <num> tokens from dominating the token sets.
+    """
+    m1 = mask_numbers_and_names(text1)
+    m2 = mask_numbers_and_names(text2)
+    if m1 == m2 and m1:
+        return 1.0
+    toks1 = {t for t in m1.split() if t != "<num>"}
+    toks2 = {t for t in m2.split() if t != "<num>"}
+    return _token_jaccard(toks1, toks2)
+
+
 def is_duplicate(
-    question: Question,
-    existing_questions: list[Question],
-    threshold: float = 0.75,
+    question: Union[Question, str],
+    existing_questions: list[Union[Question, str]],
+    threshold: float = 0.70,
+    template_threshold: float = 0.65,
 ) -> tuple[bool, Optional[str]]:
     """
-    Check if a question is an exact or near duplicate of any question in existing_questions.
+    Check if a question is an exact, near duplicate, template reskin,
+    or scenario collision of any question in existing_questions.
     Returns (True, reason) if a duplicate is detected, else (False, None).
     """
-    norm_q = normalize_question_text(question.question_text)
+    q_text = question.question_text if isinstance(question, Question) else str(question)
+    q_id = getattr(question, "question_id", None)
+    norm_q = normalize_question_text(q_text)
+    sc_q = identify_scenario_cluster(q_text)
 
     for ex in existing_questions:
-        if ex.question_id == question.question_id:
-            return True, f"Identical question_id '{question.question_id}'."
+        ex_text = ex.question_text if isinstance(ex, Question) else str(ex)
+        ex_id = getattr(ex, "question_id", None)
 
-        norm_ex = normalize_question_text(ex.question_text)
+        if q_id and ex_id and q_id == ex_id:
+            return True, f"Identical question_id '{q_id}'."
+
+        norm_ex = normalize_question_text(ex_text)
         if norm_q == norm_ex:
-            return True, f"Exact normalized text match with existing question '{ex.question_text}'."
+            return True, f"Exact normalized text match with existing question '{ex_text}'."
 
-        sim = calculate_similarity(question.question_text, ex.question_text)
+        # 1. Textual similarity
+        sim = calculate_similarity(q_text, ex_text)
         if sim >= threshold:
-            return True, f"High textual similarity ({sim:.2f} >= {threshold}) with existing question '{ex.question_text}'."
+            return True, f"High textual similarity ({sim:.2f} >= {threshold}) with existing question '{ex_text}'."
 
-        # If both are MCQs, check if options and answers match even if question phrasing slightly differed
-        if (
-            question.question_type == QuestionType.MULTIPLE_CHOICE
-            and ex.question_type == QuestionType.MULTIPLE_CHOICE
-            and question.options
-            and ex.options
-        ):
-            sorted_opts_q = sorted(opt.strip().lower() for opt in question.options)
-            sorted_opts_ex = sorted(opt.strip().lower() for opt in ex.options)
-            if sorted_opts_q == sorted_opts_ex:
-                if question.correct_option == ex.correct_option or sim >= 0.25:
-                    return True, f"Identical options and answer with existing question '{ex.question_text}'."
+        # 2. Template / Masked-number similarity
+        # Catches word problems where only numbers or minor names changed
+        templ_sim = calculate_template_similarity(q_text, ex_text)
+        if templ_sim >= template_threshold:
+            return True, (
+                f"Repeated problem template ({templ_sim:.2f} >= {template_threshold}) "
+                f"assessing same concept: '{ex_text}'"
+            )
+
+        # 3. Scenario cluster collision
+        # E.g. Both are bank deposit word problems, or both are factory production problems,
+        # or both are village population breakdown problems.
+        if sc_q:
+            sc_ex = identify_scenario_cluster(ex_text)
+            if sc_q == sc_ex:
+                return True, (
+                    f"Repeated problem scenario ('{sc_q}') assessing substantially "
+                    f"the same concept/story as: '{ex_text}'"
+                )
+
+        # 4. If both are MCQs, check if options and answers match
+        if isinstance(question, Question) and isinstance(ex, Question):
+            if (
+                question.question_type == QuestionType.MULTIPLE_CHOICE
+                and ex.question_type == QuestionType.MULTIPLE_CHOICE
+                and question.options
+                and ex.options
+            ):
+                sorted_opts_q = sorted(opt.strip().lower() for opt in question.options)
+                sorted_opts_ex = sorted(opt.strip().lower() for opt in ex.options)
+                if sorted_opts_q == sorted_opts_ex:
+                    if question.correct_option == ex.correct_option or sim >= 0.25:
+                        return True, f"Identical options and answer with existing question '{ex.question_text}'."
 
     return False, None
 
 
 def deduplicate_candidates(
     candidates: list[Question],
-    similarity_threshold: float = 0.75,
+    similarity_threshold: float = 0.70,
 ) -> tuple[list[Question], int]:
     """
     Filter candidate questions, discarding duplicates and near-duplicates.

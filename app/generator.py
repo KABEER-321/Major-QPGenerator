@@ -27,6 +27,10 @@ from app.schemas import (
 )
 from app.math_verify import verify_question_math
 from app.duplicates import is_duplicate, deduplicate_candidates
+from app.validator import (
+    validate_question_quality,
+    validate_paper_questions_uniqueness,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -241,6 +245,27 @@ def _generate_section_questions(
     needed = sec.num_questions
     sec_difficulty = sec.difficulty or request.difficulty or Difficulty.MEDIUM
 
+    # Summary of already generated questions to forbid duplicate concepts/scenarios
+    existing_summary = ""
+    if existing_questions:
+        q_lines = [
+            f"  - Q{idx+1} ({q.question_type.value}, {q.marks}M): {q.question_text}"
+            for idx, q in enumerate(existing_questions)
+        ]
+        existing_summary = (
+            "\n\nALREADY GENERATED QUESTIONS IN PREVIOUS SECTIONS (STRICTLY FORBIDDEN TO REPEAT OR RESKIN):\n"
+            + "\n".join(q_lines)
+            + "\nSTRICT RULE: Do NOT generate questions testing the same scenario, story, numbers, or problem template as any question listed above."
+        )
+
+    coherence_rule = ""
+    if sec.question_type == QuestionType.LONG_ANSWER or "Section C" in sec.title or "Problem Solving" in sec.title:
+        coherence_rule = """
+4. STRICT COHERENCE MANDATE FOR LONG-ANSWER PROBLEMS:
+   - Each long-answer problem must have ONE single, unified, coherent real-world or mathematical context.
+   - It must have clearly defined premises and a logical sequence of step-by-step questions.
+   - NEVER combine unrelated story settings (for example: NEVER mix a factory production problem with an unrelated bank deposit or train journey in the same question!)."""
+
     human_prompt = f"""Generate questions for Section '{sec.section_id}' ({sec.title}):
 
 {exam_header}
@@ -254,9 +279,10 @@ def _generate_section_questions(
 SECTION-SPECIFIC INSTRUCTIONS:
 1. Every question MUST be of type "{sec.question_type.value}".
 {"2. For multiple_choice questions, provide exactly 4 clear options (A, B, C, D) and identify the correct_option matching one of them." if sec.question_type == QuestionType.MULTIPLE_CHOICE else "2. Provide complete, clear worked solutions and marking steps."}
-3. DIVERSITY REQUIREMENT: Cover different chapters/concepts across the reference passages (e.g. arithmetic, geometry/shapes, measurement, time/money, patterns, word problems). Do NOT generate repetitive questions with just different numbers.
-4. AGE APPROPRIATENESS: Strictly suitable for primary school students in {academic_class}.
-5. Ground all questions directly in the REFERENCE PASSAGES below.
+3. DIVERSITY & NON-DUPLICATION REQUIREMENT: Cover different chapters/concepts across the reference passages (e.g. arithmetic, geometry/shapes, measurement, time/money, patterns, word problems). Do NOT generate repetitive questions with just different numbers.{coherence_rule}
+5. SELF-CONTAINED CLARITY: Every question must contain all information and numbers necessary to solve it. NEVER refer to non-existent visual diagrams, pictures, tables, or figures (do NOT say 'as shown in the figure below', 'look at the diagram', etc.). Do NOT end questions with dangling colons.
+6. AGE APPROPRIATENESS: Strictly suitable for primary school students in {academic_class}.
+7. Ground all questions directly in the REFERENCE PASSAGES below.{existing_summary}
 
 REFERENCE PASSAGES:
 {passage_text}
@@ -301,15 +327,16 @@ Return ONLY a JSON array of {needed} question objects."""
                     q = Question.model_validate(q_dict)
                     _enrich_question(q, request, source_refs)
 
-                    # SymPy verification
-                    if q.math_verification and q.math_verification.status == MathCheckStatus.DISCREPANCY:
-                        logger.warning("Rejecting question with math discrepancy: '%s'", q.question_text)
+                    # 1. Quality, Clarity & Coherence validation
+                    q_ok, q_err = validate_question_quality(q)
+                    if not q_ok:
+                        logger.warning("Rejecting low-quality question: %s", q_err)
                         continue
 
-                    # Deduplication
-                    is_dup, _ = is_duplicate(q, existing_questions + sec_questions)
+                    # 2. Deduplication against both prior sections and current section
+                    is_dup, dup_reason = is_duplicate(q, existing_questions + sec_questions)
                     if is_dup:
-                        logger.warning("Rejecting duplicate question: '%s'", q.question_text)
+                        logger.warning("Rejecting duplicate question: %s", dup_reason)
                         continue
 
                     sec_questions.append(q)
@@ -326,7 +353,9 @@ Return ONLY a JSON array of {needed} question objects."""
                     HumanMessage(
                         content=(
                             f"We still need {deficit} more valid, distinct questions of type '{sec.question_type.value}' "
-                            f"for {sec.title}. Please provide {deficit + 1} additional unique questions."
+                            f"for {sec.title}. Ensure they are fully self-contained, do not reference diagrams, "
+                            f"and do NOT repeat any previously generated question scenarios. "
+                            f"Please provide {deficit + 1} additional unique questions."
                         )
                     )
                 )
@@ -347,6 +376,88 @@ Return ONLY a JSON array of {needed} question objects."""
     return sec_questions[:needed]
 
 
+def _regenerate_single_question(
+    target_sec: "SectionBlueprint",
+    target_mark: int,
+    request: PaperGenerateRequest,
+    passages: list[Document],
+    other_questions: list[Question],
+    source_refs: list[SourceReference],
+    llm,
+) -> Question:
+    """
+    Regenerate a single question within an existing section to replace a duplicate
+    or low-quality question without changing the paper structure.
+    """
+    passage_text = "\n---\n".join(
+        f"[Passage {i+1} from {doc.metadata.get('source', 'unknown')}]\n{doc.page_content}"
+        for i, doc in enumerate(passages)
+    )
+    academic_class = format_grade_display(request.academic_grade or request.grade)
+
+    other_lines = [
+        f"- Q ({q.question_type.value}, {q.marks}M): {q.question_text}"
+        for q in other_questions
+    ]
+    forbidden_text = "\n".join(other_lines)
+
+    prompt = f"""Generate EXACTLY ONE replacement question for Section '{target_sec.section_id}' ({target_sec.title}):
+- Class: {academic_class}
+- Subject: {request.subject}
+- Question Type: {target_sec.question_type.value}
+- Marks: {target_mark}
+- Difficulty: {(target_sec.difficulty or request.difficulty or Difficulty.MEDIUM).value}
+
+STRICT CONSTRAINTS:
+1. Question must be of type "{target_sec.question_type.value}" worth exactly {target_mark} marks.
+2. Must be completely self-contained. Do NOT refer to diagrams, figures, or tables.
+3. Coherent single scenario (never combine unrelated settings).
+4. FORBIDDEN SCENARIOS (DO NOT REPEAT OR RESKIN ANY OF THESE):
+{forbidden_text}
+
+REFERENCE PASSAGES:
+{passage_text}
+
+Return ONLY a JSON array containing exactly 1 question object."""
+
+    messages = [
+        SystemMessage(content=SYSTEM_PROMPT),
+        HumanMessage(content=prompt),
+    ]
+
+    for attempt in range(1, settings.MAX_RETRIES + 2):
+        try:
+            response = llm.invoke(messages)
+            raw_text = _extract_text(response.content)
+            if raw_text.startswith("```"):
+                first_nl = raw_text.index("\n")
+                raw_text = raw_text[first_nl + 1 :]
+            if raw_text.endswith("```"):
+                raw_text = raw_text[:-3].strip()
+
+            q_data = json.loads(raw_text)
+            if isinstance(q_data, list) and q_data:
+                q_dict = q_data[0]
+                q_dict["question_type"] = target_sec.question_type.value
+                q_dict["marks"] = target_mark
+                q = Question.model_validate(q_dict)
+                _enrich_question(q, request, source_refs)
+
+                q_ok, q_err = validate_question_quality(q)
+                if not q_ok:
+                    continue
+
+                is_dup, _ = is_duplicate(q, other_questions)
+                if not is_dup:
+                    return q
+        except Exception as e:
+            logger.warning("Regeneration attempt %d failed: %s", attempt, e)
+
+    raise RuntimeError(
+        f"Failed to regenerate a unique replacement question for Section '{target_sec.section_id}'."
+    )
+
+
 def generate_questions(
     request: PaperGenerateRequest,
     passages: list[Document],
@@ -364,6 +475,7 @@ def generate_questions(
     # If blueprint has defined sections, generate section by section
     if blueprint and blueprint.sections:
         all_questions: list[Question] = []
+        section_map: dict[str, list[Question]] = {}
         for sec in blueprint.sections:
             sec_qs = _generate_section_questions(
                 sec=sec,
@@ -373,7 +485,64 @@ def generate_questions(
                 source_refs=source_refs,
                 llm=llm,
             )
+            section_map[sec.section_id] = sec_qs
             all_questions.extend(sec_qs)
+
+        # Cross-section uniqueness check & targeted regeneration:
+        # Compare all generated questions across Sections A, B, and C before finalizing
+        max_regen_rounds = 3
+        for _ in range(max_regen_rounds):
+            unique_ok, _ = validate_paper_questions_uniqueness(all_questions)
+            if unique_ok:
+                break
+
+            # Find duplicate question pair and regenerate the second one
+            dup_found = False
+            for i in range(len(all_questions)):
+                for j in range(i + 1, len(all_questions)):
+                    is_dup, _ = is_duplicate(all_questions[j], [all_questions[i]])
+                    if is_dup:
+                        dup_found = True
+                        dup_idx = j
+                        bad_q = all_questions[dup_idx]
+
+                        # Identify which section bad_q belongs to
+                        target_sec = None
+                        for sec in blueprint.sections:
+                            if any(q.question_id == bad_q.question_id for q in section_map.get(sec.section_id, [])):
+                                target_sec = sec
+                                break
+                        if target_sec is None:
+                            target_sec = blueprint.sections[-1]
+
+                        other_qs = [q for idx, q in enumerate(all_questions) if idx != dup_idx]
+                        logger.info(
+                            "Regenerating duplicate question %d in section %s",
+                            dup_idx + 1,
+                            target_sec.section_id,
+                        )
+                        try:
+                            replacement_q = _regenerate_single_question(
+                                target_sec=target_sec,
+                                target_mark=bad_q.marks,
+                                request=request,
+                                passages=passages,
+                                other_questions=other_qs,
+                                source_refs=source_refs,
+                                llm=llm,
+                            )
+                            all_questions[dup_idx] = replacement_q
+                            sec_list = section_map[target_sec.section_id]
+                            for s_i, sq in enumerate(sec_list):
+                                if sq.question_id == bad_q.question_id:
+                                    sec_list[s_i] = replacement_q
+                                    break
+                        except Exception as regen_err:
+                            logger.warning("Regeneration error: %s", regen_err)
+                        break
+                if dup_found:
+                    break
+
         return all_questions
 
     # Fallback to single-prompt generation if no sections
