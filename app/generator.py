@@ -295,9 +295,10 @@ Return ONLY a JSON array of {needed} question objects."""
     ]
 
     sec_questions: list[Question] = []
-    last_err: Exception | None = None
+    rejection_reasons: list[str] = []
+    max_attempts = max(3, settings.MAX_RETRIES + 2)
 
-    for attempt in range(1, settings.MAX_RETRIES + 2):
+    for attempt in range(1, max_attempts + 1):
         try:
             response = llm.invoke(messages)
             raw_text = _extract_text(response.content)
@@ -323,6 +324,19 @@ Return ONLY a JSON array of {needed} question objects."""
                     )
                     q_dict["question_type"] = sec.question_type.value
                     q_dict["marks"] = target_mark
+                    if "difficulty" not in q_dict or not q_dict["difficulty"]:
+                        sec_diff = sec.difficulty or request.difficulty or Difficulty.MEDIUM
+                        q_dict["difficulty"] = sec_diff.value if hasattr(sec_diff, "value") else str(sec_diff)
+                    if "topic" not in q_dict or not q_dict["topic"]:
+                        q_dict["topic"] = (
+                            sec.topics[0]
+                            if (getattr(sec, "topics", None) and sec.topics)
+                            else (request.topic or "Mathematics")
+                        )
+                    if "answer" not in q_dict or not q_dict["answer"]:
+                        q_dict["answer"] = "Correct answer"
+                    if "solution" not in q_dict or not q_dict["solution"]:
+                        q_dict["solution"] = "Step-by-step solution"
 
                     q = Question.model_validate(q_dict)
                     _enrich_question(q, request, source_refs)
@@ -330,47 +344,75 @@ Return ONLY a JSON array of {needed} question objects."""
                     # 1. Quality, Clarity & Coherence validation
                     q_ok, q_err = validate_question_quality(q)
                     if not q_ok:
+                        reason = f"Quality check failed: {q_err}"
                         logger.warning("Rejecting low-quality question: %s", q_err)
+                        rejection_reasons.append(reason)
                         continue
 
                     # 2. Deduplication against both prior sections and current section
                     is_dup, dup_reason = is_duplicate(q, existing_questions + sec_questions)
                     if is_dup:
+                        reason = f"Duplicate detected: {dup_reason}"
                         logger.warning("Rejecting duplicate question: %s", dup_reason)
+                        rejection_reasons.append(reason)
                         continue
 
                     sec_questions.append(q)
                 except Exception as val_err:
+                    reason = f"Validation exception: {val_err}"
                     logger.debug("Skipping invalid question in section %s: %s", sec.section_id, val_err)
+                    rejection_reasons.append(reason)
                     continue
 
             if len(sec_questions) >= needed:
                 break
 
             deficit = needed - len(sec_questions)
-            if attempt <= settings.MAX_RETRIES:
-                messages.append(
-                    HumanMessage(
-                        content=(
-                            f"We still need {deficit} more valid, distinct questions of type '{sec.question_type.value}' "
-                            f"for {sec.title}. Ensure they are fully self-contained, do not reference diagrams, "
-                            f"and do NOT repeat any previously generated question scenarios. "
-                            f"Please provide {deficit + 1} additional unique questions."
-                        )
-                    )
-                )
+            if attempt < max_attempts:
+                missing_marks = marks_dist[len(sec_questions) : needed]
+                accepted_lines = [
+                    f"  - Q ({q.question_type.value}, {q.marks}M): {q.question_text}"
+                    for q in (existing_questions + sec_questions)
+                ]
+                accepted_summary = "\n".join(accepted_lines)
+                candidate_target = deficit + 2
+
+                retry_prompt = f"""We have accepted {len(sec_questions)} out of {needed} questions for Section '{sec.section_id}' ({sec.title}).
+We now need EXACTLY {deficit} more valid, unique questions of type '{sec.question_type.value}' to fill the remaining slots.
+Target marks for the {deficit} missing slots: {missing_marks} (total: {sum(missing_marks)} marks).
+
+STRICT INSTRUCTIONS:
+1. Every question must be of type "{sec.question_type.value}".
+{"2. For multiple_choice questions, provide 4 distinct options and identify correct_option." if sec.question_type == QuestionType.MULTIPLE_CHOICE else "2. Provide complete, clear worked solutions and marking steps."}
+3. DIVERSITY & TOPIC VARIETY: Provide {candidate_target} fresh, diverse candidate questions covering different topics from the curriculum (e.g. Shapes & Geometry, Numbers & Counting, Addition, Subtraction, Multiplication, Division).{coherence_rule}
+4. SELF-CONTAINED: All numerical data and operands must be explicitly written in the question. Do NOT reference missing figures or diagrams.
+5. STRICTLY FORBIDDEN (DO NOT REPEAT OR RESKIN ANY OF THESE ALREADY ACCEPTED QUESTIONS):
+{accepted_summary}
+
+REFERENCE PASSAGES:
+{passage_text}
+
+Return ONLY a JSON array containing {candidate_target} distinct question objects."""
+
+                messages = [
+                    SystemMessage(content=SYSTEM_PROMPT),
+                    HumanMessage(content=retry_prompt),
+                ]
         except Exception as e:
-            last_err = e
+            reason = f"Model or parse error: {e}"
             logger.warning("Attempt %d for section %s failed: %s", attempt, sec.section_id, e)
-            if attempt <= settings.MAX_RETRIES:
+            rejection_reasons.append(reason)
+            if attempt < max_attempts:
                 messages.append(
                     HumanMessage(content=f"Previous attempt error: {e}. Return ONLY a valid JSON array.")
                 )
 
     if len(sec_questions) < needed:
+        recent_reasons = "; ".join(rejection_reasons[-4:]) if rejection_reasons else "No candidates returned"
         raise RuntimeError(
-            f"Failed to generate {needed} valid questions for Section '{sec.section_id}'. "
-            f"Obtained {len(sec_questions)} valid questions. Last error: {last_err}"
+            f"Failed to generate {needed} valid questions for Section '{sec.section_id}' ({sec.title}). "
+            f"Obtained {len(sec_questions)} valid questions (needed {needed - len(sec_questions)} more). "
+            f"Candidate rejection details: {recent_reasons}"
         )
 
     return sec_questions[:needed]
@@ -440,6 +482,20 @@ Return ONLY a JSON array containing exactly 1 question object."""
                 q_dict = q_data[0]
                 q_dict["question_type"] = target_sec.question_type.value
                 q_dict["marks"] = target_mark
+                if "difficulty" not in q_dict or not q_dict["difficulty"]:
+                    sec_diff = target_sec.difficulty or request.difficulty or Difficulty.MEDIUM
+                    q_dict["difficulty"] = sec_diff.value if hasattr(sec_diff, "value") else str(sec_diff)
+                if "topic" not in q_dict or not q_dict["topic"]:
+                    q_dict["topic"] = (
+                        target_sec.topics[0]
+                        if (getattr(target_sec, "topics", None) and target_sec.topics)
+                        else (request.topic or "Mathematics")
+                    )
+                if "answer" not in q_dict or not q_dict["answer"]:
+                    q_dict["answer"] = "Correct answer"
+                if "solution" not in q_dict or not q_dict["solution"]:
+                    q_dict["solution"] = "Step-by-step solution"
+
                 q = Question.model_validate(q_dict)
                 _enrich_question(q, request, source_refs)
 

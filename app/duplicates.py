@@ -85,6 +85,50 @@ SCENARIO_CLUSTERS = [
     },
 ]
 
+ARITH_OPS = {
+    "add": {"add", "sum", "plus", "+"},
+    "sub": {"subtract", "subtraction", "difference", "minus", "-"},
+    "mul": {"multiply", "multiplication", "product", "times", "*", "x"},
+    "div": {"divide", "division", "quotient", "/"},
+}
+
+STORY_INDICATORS = {
+    "bank", "factory", "village", "town", "city", "population", "train", "station", "vessel",
+    "tumbler", "carton", "cartons", "boxes", "soap", "shopkeeper", "bought", "sold", "farmer",
+    "apples", "oranges", "pencils", "books", "students", "class", "school", "deposited",
+    "withdrew", "manufactured", "journey", "arrived", "departed", "perimeter", "fence",
+    "fencing", "boundary", "cost", "price", "warehouse", "passbook", "liters", "litres",
+}
+
+
+def is_pure_computation(text: str) -> bool:
+    """Check if question is a direct arithmetic computation without story context."""
+    clean = re.sub(r"[^\w\s\+\-\*\/\=]", " ", text.lower())
+    words = set(clean.split())
+    if any(si in words for si in STORY_INDICATORS):
+        return False
+    nums = re.findall(r"\b\d+\b", text)
+    if not nums:
+        return False
+    has_op = any(w in words for op_set in ARITH_OPS.values() for w in op_set)
+    return has_op and len(words) <= 12
+
+
+def get_arith_op(text: str) -> Optional[str]:
+    """Identify which arithmetic operation is being performed."""
+    clean = re.sub(r"[^\w\s\+\-\*\/\=]", " ", text.lower())
+    words = set(clean.split())
+    for op, kws in ARITH_OPS.items():
+        if any(k in words for k in kws):
+            return op
+    return None
+
+
+def get_content_tokens(text: str) -> set[str]:
+    """Extract stemmed content tokens, stripping stopwords and numbers."""
+    clean = re.sub(r"[^\w\s]", " ", text.lower())
+    return {_simple_stem(w) for w in clean.split() if w not in STOPWORDS and not w.isdigit()}
+
 
 def _simple_stem(word: str) -> str:
     """Lightweight suffix stemming for primary math vocabulary."""
@@ -205,7 +249,9 @@ def _char_ngrams(s: str, n: int = 3) -> set[str]:
 def calculate_similarity(text1: str, text2: str) -> float:
     """
     Calculate similarity between two question texts (0.0 to 1.0).
-    Uses normalized tokens and character 3-grams.
+    Uses normalized tokens, content tokens, and character 3-grams.
+    Protects distinct mathematical entities (e.g. triangle vs rectangle)
+    from stopword-inflated question carrier frames.
     """
     n1 = normalize_question_text(text1)
     n2 = normalize_question_text(text2)
@@ -221,8 +267,18 @@ def calculate_similarity(text1: str, text2: str) -> float:
     ngrams2 = _char_ngrams(n2, 3)
     ngram_sim = _token_jaccard(ngrams1, ngrams2)
 
-    # Return the maximum of token Jaccard and n-gram Jaccard
-    return max(tok_sim, ngram_sim)
+    raw_sim = max(tok_sim, ngram_sim)
+
+    # Content token check: if distinct key entities (e.g. triangle vs rectangle),
+    # clamp similarity so carrier frames do not trigger false duplicates
+    c1 = get_content_tokens(text1)
+    c2 = get_content_tokens(text2)
+    if c1 and c2:
+        content_sim = _token_jaccard(c1, c2)
+        if content_sim < 0.40:
+            return min(raw_sim, 0.45)
+
+    return raw_sim
 
 
 def calculate_template_similarity(text1: str, text2: str) -> float:
@@ -255,10 +311,12 @@ def is_duplicate(
     q_id = getattr(question, "question_id", None)
     norm_q = normalize_question_text(q_text)
     sc_q = identify_scenario_cluster(q_text)
+    words_q = q_text.split()
 
     for ex in existing_questions:
         ex_text = ex.question_text if isinstance(ex, Question) else str(ex)
         ex_id = getattr(ex, "question_id", None)
+        words_ex = ex_text.split()
 
         if q_id and ex_id and q_id == ex_id:
             return True, f"Identical question_id '{q_id}'."
@@ -267,19 +325,39 @@ def is_duplicate(
         if norm_q == norm_ex:
             return True, f"Exact normalized text match with existing question '{ex_text}'."
 
+        # Pure computation check: e.g. "Add 23 and 45" vs "Add 12 and 34"
+        if is_pure_computation(q_text) and is_pure_computation(ex_text):
+            op_q = get_arith_op(q_text)
+            op_ex = get_arith_op(ex_text)
+            nums_q = set(re.findall(r"\b\d+\b", q_text))
+            nums_ex = set(re.findall(r"\b\d+\b", ex_text))
+            if op_q and op_q == op_ex and nums_q and nums_q == nums_ex:
+                return True, f"Same arithmetic calculation ({op_q} on {nums_q}) as: '{ex_text}'"
+            # Different numbers in direct arithmetic are distinct math problems
+            continue
+
+        # Short number-focused prompt check (e.g. before/after, number names, place value)
+        nums_q = set(re.findall(r"\b\d+\b", q_text))
+        nums_ex = set(re.findall(r"\b\d+\b", ex_text))
+        if len(words_q) <= 10 and len(words_ex) <= 10 and nums_q and nums_ex and nums_q != nums_ex:
+            # Different target numbers in short prompts
+            continue
+
         # 1. Textual similarity
         sim = calculate_similarity(q_text, ex_text)
         if sim >= threshold:
             return True, f"High textual similarity ({sim:.2f} >= {threshold}) with existing question '{ex_text}'."
 
         # 2. Template / Masked-number similarity
-        # Catches word problems where only numbers or minor names changed
-        templ_sim = calculate_template_similarity(q_text, ex_text)
-        if templ_sim >= template_threshold:
-            return True, (
-                f"Repeated problem template ({templ_sim:.2f} >= {template_threshold}) "
-                f"assessing same concept: '{ex_text}'"
-            )
+        # Catches word problems where only numbers or minor names changed.
+        # Only applies to word problems / narrative prompts with sufficient length (>= 8 words)
+        if len(words_q) >= 8 and len(words_ex) >= 8:
+            templ_sim = calculate_template_similarity(q_text, ex_text)
+            if templ_sim >= template_threshold:
+                return True, (
+                    f"Repeated problem template ({templ_sim:.2f} >= {template_threshold}) "
+                    f"assessing same concept: '{ex_text}'"
+                )
 
         # 3. Scenario cluster collision
         # E.g. Both are bank deposit word problems, or both are factory production problems,

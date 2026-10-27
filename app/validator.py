@@ -67,8 +67,8 @@ def check_question_clarity(
     Rejects questions with missing visual artifacts, missing operands, or dangling prompts.
     """
     clean = text.strip()
-    if len(clean) < 15:
-        return False, "Question text is too short or incomplete (< 15 characters)."
+    if len(clean) < 10:
+        return False, "Question text is too short or incomplete (< 10 characters)."
 
     # 1. Reject references to non-existent visual diagrams
     m = VISUAL_REF_PATTERN.search(clean)

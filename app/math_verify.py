@@ -177,36 +177,42 @@ def _check_discriminant(question_text: str, answer_text: str) -> Optional[MathVe
 
 
 def _check_arithmetic_evaluation(answer_text: str, solution_text: str) -> Optional[MathVerificationResult]:
-    """Check explicit arithmetic equations in answer/solution (e.g. 1^2 - 4(2)(-300) = 2401)."""
-    text = f"{answer_text} {solution_text}"
-    clean = _clean_math_str(text)
+    """Check explicit arithmetic equations in answer or solution (e.g. 9 + 10 = 19 or 1^2 - 4(2)(-300) = 2401)."""
+    # Evaluate expressions in solution_text first, then answer_text (without cross-gluing numbers)
+    for text in (solution_text, answer_text):
+        if not text or "=" not in text:
+            continue
+        clean = _clean_math_str(text)
+        # Search for equality pattern: <expr> = <number>
+        eqs = re.findall(r"([\d\+\-\*\/\^\(\)\s]{3,})\s*=\s*([-\d]+(?:\.\d+)?)", clean)
+        for lhs_raw, rhs_raw in eqs:
+            lhs_raw = lhs_raw.strip()
+            rhs_raw = rhs_raw.strip()
+            # If adjacent numbers without operators exist (e.g. "19 9 + 10"), isolate the rightmost expression
+            if re.search(r"\b\d+\s+\d+\b", lhs_raw):
+                parts = re.split(r"\b\d+\s+", lhs_raw)
+                lhs_raw = parts[-1].strip()
 
-    # Search for equality pattern: <expr> = <number>
-    eqs = re.findall(r"([\d\+\-\*\/\^\(\)\s]{3,})\s*=\s*([-\d]+(?:\.\d+)?)", clean)
-    for lhs_raw, rhs_raw in eqs:
-        lhs_raw = lhs_raw.strip()
-        rhs_raw = rhs_raw.strip()
-        # Filter out trivial cases or single digits
-        if not any(op in lhs_raw for op in ("+", "-", "*", "/", "^")):
-            continue
-        try:
-            lhs_val = _safe_parse_expr(lhs_raw)
-            rhs_val = _safe_parse_expr(rhs_raw)
-            if lhs_val is not None and rhs_val is not None:
-                if sp.simplify(lhs_val - rhs_val) == 0:
-                    return MathVerificationResult(
-                        status=MathCheckStatus.VERIFIED,
-                        details=f"SymPy verified equality: {lhs_raw} = {rhs_raw}",
-                        expression_checked=f"{lhs_raw} = {rhs_raw}",
-                    )
-                else:
-                    return MathVerificationResult(
-                        status=MathCheckStatus.DISCREPANCY,
-                        details=f"Arithmetic discrepancy: {lhs_raw} evaluates to {lhs_val}, not {rhs_raw}",
-                        expression_checked=f"{lhs_raw} != {rhs_raw}",
-                    )
-        except Exception:
-            continue
+            if not any(op in lhs_raw for op in ("+", "-", "*", "/", "^")):
+                continue
+            try:
+                lhs_val = _safe_parse_expr(lhs_raw)
+                rhs_val = _safe_parse_expr(rhs_raw)
+                if lhs_val is not None and rhs_val is not None:
+                    if sp.simplify(lhs_val - rhs_val) == 0:
+                        return MathVerificationResult(
+                            status=MathCheckStatus.VERIFIED,
+                            details=f"SymPy verified equality: {lhs_raw} = {rhs_raw}",
+                            expression_checked=f"{lhs_raw} = {rhs_raw}",
+                        )
+                    else:
+                        return MathVerificationResult(
+                            status=MathCheckStatus.DISCREPANCY,
+                            details=f"Arithmetic discrepancy: {lhs_raw} evaluates to {lhs_val}, not {rhs_raw}",
+                            expression_checked=f"{lhs_raw} != {rhs_raw}",
+                        )
+            except Exception:
+                continue
     return None
 
 
