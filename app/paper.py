@@ -132,9 +132,19 @@ def assemble_paper(
             sections = built_sections
 
     distinct_covered = []
+    ch_marks_dist: dict[str, int] = {}
+    ch_qs_dist: dict[str, int] = {}
     for q in questions:
-        if q.chapter and q.chapter not in distinct_covered:
-            distinct_covered.append(q.chapter)
+        c_name = q.chapter or q.topic or "Unknown"
+        if permitted:
+            for pu in permitted:
+                if pu.lower() in c_name.lower() or c_name.lower() in pu.lower():
+                    c_name = pu
+                    break
+        if c_name not in distinct_covered:
+            distinct_covered.append(c_name)
+        ch_marks_dist[c_name] = ch_marks_dist.get(c_name, 0) + q.marks
+        ch_qs_dist[c_name] = ch_qs_dist.get(c_name, 0) + 1
 
     coverage_explanation = None
     if hasattr(request, "get_or_create_blueprint"):
@@ -158,6 +168,8 @@ def assemble_paper(
         forbidden_units=getattr(request, "forbidden_units", None),
         covered_chapters=distinct_covered,
         coverage_explanation=coverage_explanation,
+        chapter_marks_distribution=ch_marks_dist,
+        chapter_questions_distribution=ch_qs_dist,
         difficulty=request.difficulty,
         questions=questions,
         num_questions=request.num_questions,

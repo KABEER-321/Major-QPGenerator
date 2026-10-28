@@ -399,6 +399,14 @@ class ExamBlueprint(BaseModel):
         default=None,
         description="Explanation of syllabus chapter coverage across questions",
     )
+    chapter_marks_allocation: Optional[dict[str, int]] = Field(
+        default=None,
+        description="Target marks allocated to each chapter in the blueprint",
+    )
+    chapter_questions_allocation: Optional[dict[str, int]] = Field(
+        default=None,
+        description="Target question count allocated to each chapter in the blueprint",
+    )
 
     @model_validator(mode="after")
     def validate_totals_and_consistency(self) -> "ExamBlueprint":
@@ -904,6 +912,14 @@ class Paper(BaseModel):
     coverage_explanation: Optional[str] = Field(
         default=None,
         description="Explanation of syllabus chapter coverage",
+    )
+    chapter_marks_distribution: Optional[dict[str, int]] = Field(
+        default=None,
+        description="Actual marks aggregated by chapter from question metadata",
+    )
+    chapter_questions_distribution: Optional[dict[str, int]] = Field(
+        default=None,
+        description="Actual question counts aggregated by chapter",
     )
     difficulty: Difficulty
     created_at: str = Field(

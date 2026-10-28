@@ -385,6 +385,7 @@ def is_computational_chapter(chapter_name: str) -> bool:
             "multiples",
             "unit",
             "tens",
+            "numbers",
             "number 11",
             "5-digit",
             "data handling",
@@ -392,13 +393,269 @@ def is_computational_chapter(chapter_name: str) -> bool:
             "mental arithmetic",
             "word problem",
         )
-    )
+    ) and not any(k in c for k in ("spatial", "zero"))
 
 
 def is_foundational_chapter(chapter_name: str) -> bool:
     """Return True if chapter is visual/foundational vocabulary (better for MCQ / short answer)."""
     c = chapter_name.lower()
-    return any(k in c for k in ("spatial", "solid", "zero", "circle", "angle")) and not is_computational_chapter(c)
+    return (
+        any(k in c for k in ("spatial", "solid", "shape", "shapes", "zero", "circle", "angle"))
+        and not any(k in c for k in ("addition", "subtraction", "multiplication", "division", "fraction", "perimeter", "area"))
+    )
+
+
+def get_chapter_pedagogical_weight(chapter_name: str, grade: int | str | None = None) -> float:
+    """
+    Calculate the pedagogical weight of a textbook chapter based on its syllabus
+    learning objectives, conceptual depth, and curriculum emphasis.
+    Weights:
+    - Foundational / Visual Chapters: ~1.0
+      (Spatial Understanding, Solids, Shapes, Zero, Circles, Angles, Patterns, Clock/Calendar)
+    - Intermediate / Core Number & Measurement Concepts: ~1.6
+      (Digits 1-9, Number 10, Numbers, Place Value, Units & Tens, Number 11 to 20, Length, Money, Mental Arithmetic)
+    - Heavy Operational & Computational Chapters: ~2.4
+      (Addition, Subtraction, Multiplication, Division, Fractions, Perimeter & Area, Factors & Multiples)
+    """
+    c = chapter_name.lower()
+
+    # Heavy Operational & Computational (highest pedagogical weight)
+    if any(k in c for k in (
+        "addition", "subtraction", "multiplication", "division",
+        "fraction", "decimal", "perimeter", "area", "factors", "multiples"
+    )):
+        return 2.4
+
+    # Intermediate / Core Numerical & Measurement Concepts
+    if any(k in c for k in (
+        "number", "numbers", "digit", "digits", "tens", "units",
+        "length", "weight", "capacity", "money", "rupees", "time", "clock",
+        "mental arithmetic", "data handling"
+    )):
+        return 1.6
+
+    # Foundational / Visual Units (Shapes, Spatial, Zero, Solids, Circles, Angles)
+    return 1.0
+
+
+def allocate_chapter_marks_and_questions(
+    permitted_chapters: list[str],
+    total_marks: int,
+    total_questions: int,
+    grade: int | str | None = None,
+) -> tuple[dict[str, int], dict[str, int]]:
+    """
+    Compute target marks and question counts for each chapter using pedagogical weights.
+    Uses the Largest Remainder Method (Hare-Niemeyer) to ensure:
+    - sum(target_marks.values()) == total_marks
+    - sum(target_questions.values()) == total_questions
+    - When total_questions >= len(permitted_chapters), every chapter receives at least 1 question
+      and an integer mark allocation reflecting its curriculum weight.
+    """
+    m = len(permitted_chapters)
+    if m == 0:
+        return {}, {}
+
+    weights = [get_chapter_pedagogical_weight(ch, grade) for ch in permitted_chapters]
+    total_weight = sum(weights) or float(m)
+
+    # 1. Question Counts Allocation
+    if total_questions >= m:
+        # Every chapter gets at least 1 question
+        base_qs = [1] * m
+        rem_q = total_questions - m
+        if rem_q > 0:
+            exact_extras = [rem_q * (w / total_weight) for w in weights]
+            floor_extras = [int(x) for x in exact_extras]
+            remainder_q = [(exact_extras[i] - floor_extras[i], i) for i in range(m)]
+            # Sort remainders descending; tie-break by order
+            remainder_q.sort(key=lambda t: t[0], reverse=True)
+            leftover = rem_q - sum(floor_extras)
+            for k in range(leftover):
+                idx = remainder_q[k][1]
+                floor_extras[idx] += 1
+            assigned_qs = [base_qs[i] + floor_extras[i] for i in range(m)]
+        else:
+            assigned_qs = base_qs
+    else:
+        # N < M: distribute 1 question to each of the selected chapters (handled by caller)
+        assigned_qs = [1 if i < total_questions else 0 for i in range(m)]
+
+    # 2. Marks Allocation
+    # Ensure every chapter with questions gets at least 1 mark (or minimum mark)
+    active_indices = [i for i in range(m) if assigned_qs[i] > 0]
+    num_active = len(active_indices)
+    if num_active == 0:
+        return {}, {}
+
+    active_weight = sum(weights[i] for i in active_indices)
+    exact_marks = [total_marks * (weights[i] / active_weight) if i in active_indices else 0.0 for i in range(m)]
+    floor_marks = [max(1, int(exact_marks[i])) if i in active_indices else 0 for i in range(m)]
+    current_sum = sum(floor_marks)
+
+    if current_sum <= total_marks:
+        diff = total_marks - current_sum
+        remainder_m = [(exact_marks[i] - int(exact_marks[i]), i) for i in active_indices]
+        remainder_m.sort(key=lambda t: t[0], reverse=True)
+        for k in range(diff):
+            idx = remainder_m[k % len(remainder_m)][1]
+            floor_marks[idx] += 1
+    else:
+        # Deficit adjustment (can occur if total_marks is very small relative to num_active)
+        diff = current_sum - total_marks
+        remainder_m = [(exact_marks[i] - int(exact_marks[i]), i) for i in active_indices]
+        remainder_m.sort(key=lambda t: t[0])  # Smallest remainder reduced first
+        for k in range(diff):
+            idx = remainder_m[k % len(remainder_m)][1]
+            if floor_marks[idx] > 1:
+                floor_marks[idx] -= 1
+
+    target_marks_map = {permitted_chapters[i]: floor_marks[i] for i in range(m)}
+    target_questions_map = {permitted_chapters[i]: assigned_qs[i] for i in range(m)}
+    return target_marks_map, target_questions_map
+
+
+def _solve_slot_chapter_assignment(
+    blueprint: ExamBlueprint,
+    permitted_chapters: list[str],
+    target_marks: dict[str, int],
+    target_questions: dict[str, int],
+) -> dict[str, list[str]]:
+    """
+    Assign individual question slots in each section of the blueprint to eligible chapters.
+    Guarantees:
+    - Each section receives exactly its num_questions slots.
+    - Each chapter receives its allocated question count (or as close as mathematically possible).
+    - Each chapter receives its allocated target marks (or as close as mathematically possible).
+    - Cognitive appropriateness: foundational visual chapters are not placed in >= 3 mark
+      slots when operational or core numerical chapters are available.
+    """
+    order_map = {ch: idx for idx, ch in enumerate(permitted_chapters)}
+    active_chapters = [ch for ch in permitted_chapters if target_questions.get(ch, 0) > 0]
+    if not active_chapters:
+        active_chapters = list(permitted_chapters)
+
+    m = len(active_chapters)
+    ch_indices = list(range(m))
+
+    # 1. Expand slots from all sections
+    slots = []
+    for s_idx, sec in enumerate(blueprint.sections):
+        marks_dist = sec.marks_distribution
+        if not marks_dist or len(marks_dist) != sec.num_questions:
+            default_m = sec.marks_per_question or max(1, sec.section_marks // sec.num_questions)
+            marks_dist = [default_m] * sec.num_questions
+
+        is_la = sec.question_type == QuestionType.LONG_ANSWER or sec.section_marks >= sec.num_questions * 3
+        for slot_i in range(sec.num_questions):
+            m_val = marks_dist[slot_i]
+            slots.append({
+                'section_id': sec.section_id,
+                'sec_idx': s_idx,
+                'slot_idx': slot_i,
+                'mark': m_val,
+                'is_la': is_la,
+                'qtype': sec.question_type,
+            })
+
+    # Sort slots: high marks first (5M, 2M, 1M)
+    slots.sort(key=lambda s: (s['mark'], 1 if s['is_la'] else 0), reverse=True)
+
+    is_found = [is_foundational_chapter(active_chapters[i]) for i in range(m)]
+    has_non_found = any(not f for f in is_found)
+
+    # Beam search with width 300
+    beam_width = 300
+    # Beam item: (cost, current_marks_tuple, current_qs_tuple, tuple_of_ch_indices)
+    beam = [(0, (0,) * m, (0,) * m, ())]
+    total_slots = len(slots)
+
+    for step, slot in enumerate(slots):
+        mark = slot['mark']
+        is_high_mark = mark >= 3 or slot['is_la']
+        rem_slots = total_slots - step
+        next_beam = []
+
+        for cost, cur_m, cur_q, assign in beam:
+            zero_indices = [i for i in ch_indices if cur_q[i] == 0]
+            if rem_slots <= len(zero_indices):
+                allowed_indices = zero_indices
+            else:
+                allowed_indices = ch_indices
+
+            for ch_idx in allowed_indices:
+                if is_high_mark and has_non_found and is_found[ch_idx]:
+                    continue  # Foundational visual chapters disallowed from high marks
+
+                new_m = list(cur_m)
+                new_m[ch_idx] += mark
+                new_q = list(cur_q)
+                new_q[ch_idx] += 1
+
+                ch_name = active_chapters[ch_idx]
+                t_m = target_marks.get(ch_name, 0)
+                t_q = target_questions.get(ch_name, 0)
+
+                # Penalize overshooting target marks or question counts
+                m_diff = abs(new_m[ch_idx] - t_m)
+                q_diff = abs(new_q[ch_idx] - t_q)
+                overshoot_m = max(0, new_m[ch_idx] - t_m)
+                overshoot_q = max(0, new_q[ch_idx] - t_q)
+
+                suitability_bonus = 0
+                if is_high_mark and is_computational_chapter(ch_name):
+                    suitability_bonus = -5
+                elif slot['qtype'] == QuestionType.MULTIPLE_CHOICE and is_found[ch_idx]:
+                    suitability_bonus = -10 + order_map.get(ch_name, 0)
+
+                step_cost = cost + m_diff * 4 + overshoot_m * 6 + q_diff * 2 + overshoot_q * 4 + suitability_bonus
+                next_beam.append((step_cost, tuple(new_m), tuple(new_q), assign + (ch_idx,)))
+
+        if not next_beam:
+            # Fallback if over-constrained
+            next_beam = [(cost, cur_m, cur_q, assign + (0,)) for cost, cur_m, cur_q, assign in beam]
+        # Prune to beam_width
+        next_beam.sort(key=lambda x: x[0])
+        beam = next_beam[:beam_width]
+
+    # Evaluate best overall assignment
+    best_eval = float("inf")
+    best_assign = None
+
+    for cost, cur_m, cur_q, assign in beam:
+        eval_score = 0
+        # If N >= M, heavy penalty if any chapter has 0 questions
+        if len(slots) >= m and any(q == 0 for q in cur_q):
+            eval_score += 10000
+
+        for i in range(m):
+            ch_name = active_chapters[i]
+            t_m = target_marks.get(ch_name, 0)
+            t_q = target_questions.get(ch_name, 0)
+            eval_score += abs(cur_m[i] - t_m) * 10
+            eval_score += abs(cur_q[i] - t_q) * 4
+
+        if eval_score < best_eval:
+            best_eval = eval_score
+            best_assign = assign
+
+    # Fallback if beam empty or unassigned
+    if not best_assign:
+        best_assign = tuple(i % m for i in range(len(slots)))
+
+    assigned_slots = [(slots[idx], active_chapters[ch_idx]) for idx, ch_idx in enumerate(best_assign)]
+
+    # Map back to section order
+    section_allocations: dict[str, list[str]] = {sec.section_id: [None] * sec.num_questions for sec in blueprint.sections}
+    for slot, ch in assigned_slots:
+        section_allocations[slot['section_id']][slot['slot_idx']] = ch
+
+    for sec in blueprint.sections:
+        for idx in range(sec.num_questions):
+            if section_allocations[sec.section_id][idx] is None:
+                section_allocations[sec.section_id][idx] = active_chapters[0]
+
+    return section_allocations
 
 
 def assign_blueprint_chapter_coverage(
@@ -406,100 +663,52 @@ def assign_blueprint_chapter_coverage(
     permitted_chapters: list[str],
 ) -> tuple[ExamBlueprint, str]:
     """
-    Distribute questions across the eligible chapters before generation.
-    - When question count N >= total chapters M: every chapter receives at least one question.
-      Allocates multi-step / operational chapters to Long Answer sections and foundational
-      identification chapters to Multiple Choice sections, preventing cognitive mismatches
-      and cross-section repetition of trivial concepts.
-    - When question count N < total chapters M: select N evenly distributed representative chapters
-      and explain the actual coverage.
+    Distribute questions and marks across the eligible chapters before generation.
+    - Creates a syllabus-wise blueprint allocating both question counts and marks
+      proportionally across every eligible chapter based on pedagogical weights.
+    - When question count N >= total chapters M: every chapter receives at least one question
+      and a fair share of the paper's marks (never leaves a chapter with 1 mark while another has 23).
+    - Allocates multi-step / operational chapters to Long Answer sections and foundational
+      visual chapters to Multiple Choice / Short Answer sections.
+    - When question count N < total chapters M: selects N evenly distributed representative chapters
+      and reports the chapters actually assessed.
     """
     if not permitted_chapters:
         return blueprint, "No chapters available for allocation."
 
     m = len(permitted_chapters)
     n = blueprint.total_questions
-
-    # Chapter order index lookup
-    order_map = {ch: idx for idx, ch in enumerate(permitted_chapters)}
+    grade = getattr(blueprint, "grade", None)
 
     if n >= m:
-        # 1. Pool must contain all M permitted chapters at least once
-        pool = list(permitted_chapters)
+        target_marks, target_qs = allocate_chapter_marks_and_questions(
+            permitted_chapters=permitted_chapters,
+            total_marks=blueprint.total_marks,
+            total_questions=n,
+            grade=grade,
+        )
+        sec_allocs = _solve_slot_chapter_assignment(
+            blueprint=blueprint,
+            permitted_chapters=permitted_chapters,
+            target_marks=target_marks,
+            target_questions=target_qs,
+        )
 
-        # 2. Extra slots (N - M) are drawn from computational/operational chapters
-        # (NEVER from foundational visual vocabulary like Spatial Understanding or Zero)
-        comp_chapters = [ch for ch in permitted_chapters if is_computational_chapter(ch)]
-        extra_pool = comp_chapters if comp_chapters else permitted_chapters
-        for i in range(n - m):
-            pool.append(extra_pool[i % len(extra_pool)])
-
-        # 3. Categorize sections
-        la_secs = [s for s in blueprint.sections if s.question_type == QuestionType.LONG_ANSWER or s.section_marks >= s.num_questions * 3]
-        mcq_secs = [s for s in blueprint.sections if s.question_type == QuestionType.MULTIPLE_CHOICE]
-        sa_secs = [s for s in blueprint.sections if s not in la_secs and s not in mcq_secs]
-
-        remaining_pool = list(pool)
-        la_assigned = []
-        mcq_assigned = []
-        sa_assigned = []
-
-        total_la_needed = sum(s.num_questions for s in la_secs)
-        total_mcq_needed = sum(s.num_questions for s in mcq_secs)
-
-        # Long Answer prefers computational chapters (Addition, Subtraction, Multiplication, Fractions, etc.)
-        candidates_la = [ch for ch in remaining_pool if is_computational_chapter(ch)]
-        candidates_la.sort(key=lambda ch: order_map.get(ch, 99))
-        for ch in candidates_la:
-            if len(la_assigned) < total_la_needed:
-                la_assigned.append(ch)
-                remaining_pool.remove(ch)
-
-        # If more LA needed, fill from remaining (highest order index)
-        remaining_pool.sort(key=lambda ch: order_map.get(ch, 99), reverse=True)
-        while len(la_assigned) < total_la_needed and remaining_pool:
-            ch = remaining_pool.pop(0)
-            la_assigned.append(ch)
-
-        # MCQ prefers foundational and early chapters
-        candidates_mcq = [ch for ch in remaining_pool if is_foundational_chapter(ch)]
-        candidates_mcq.sort(key=lambda ch: order_map.get(ch, 99))
-        for ch in candidates_mcq:
-            if len(mcq_assigned) < total_mcq_needed:
-                mcq_assigned.append(ch)
-                remaining_pool.remove(ch)
-
-        # If more MCQ needed, fill from remaining (lowest order index)
-        remaining_pool.sort(key=lambda ch: order_map.get(ch, 99))
-        while len(mcq_assigned) < total_mcq_needed and remaining_pool:
-            ch = remaining_pool.pop(0)
-            mcq_assigned.append(ch)
-
-        # Short answer takes the rest
-        remaining_pool.sort(key=lambda ch: order_map.get(ch, 99))
-        sa_assigned = remaining_pool
-
-        # Now distribute into individual section blueprints preserving section ordering
         for sec in blueprint.sections:
-            if sec in la_secs:
-                take = la_assigned[:sec.num_questions]
-                la_assigned = la_assigned[sec.num_questions:]
-            elif sec in mcq_secs:
-                take = mcq_assigned[:sec.num_questions]
-                mcq_assigned = mcq_assigned[sec.num_questions:]
-            else:
-                take = sa_assigned[:sec.num_questions]
-                sa_assigned = sa_assigned[sec.num_questions:]
+            alloc = sec_allocs.get(sec.section_id, [permitted_chapters[0]] * sec.num_questions)
+            sec.chapter_allocation = alloc
+            sec.topics = list(dict.fromkeys(alloc))
 
-            take.sort(key=lambda ch: order_map.get(ch, 99))
-            sec.chapter_allocation = take
-            sec.topics = list(dict.fromkeys(take))
+        blueprint.allocated_chapters = list(permitted_chapters)
+        blueprint.chapter_marks_allocation = target_marks
+        blueprint.chapter_questions_allocation = target_qs
 
+        # Build detailed explanation
+        parts = [f"{ch} = {target_marks.get(ch, 0)}M ({target_qs.get(ch, 0)}Q)" for ch in permitted_chapters]
         explanation = (
             f"Comprehensive balanced coverage: All {m} eligible curriculum chapters "
-            f"are assessed across the {n} questions of the examination paper."
+            f"are assessed across the {n} questions of the examination paper ({', '.join(parts)})."
         )
-        blueprint.allocated_chapters = list(permitted_chapters)
 
     else:
         # N < M: Balanced sampling of N representative chapters across the M chapters
@@ -508,20 +717,35 @@ def assign_blueprint_chapter_coverage(
         else:
             indices = [round(i * (m - 1) / (n - 1)) for i in range(n)]
         chosen_chapters = [permitted_chapters[idx] for idx in indices]
-        blueprint.allocated_chapters = chosen_chapters
 
+        target_marks, target_qs = allocate_chapter_marks_and_questions(
+            permitted_chapters=chosen_chapters,
+            total_marks=blueprint.total_marks,
+            total_questions=n,
+            grade=grade,
+        )
+        sec_allocs = _solve_slot_chapter_assignment(
+            blueprint=blueprint,
+            permitted_chapters=chosen_chapters,
+            target_marks=target_marks,
+            target_questions=target_qs,
+        )
+
+        for sec in blueprint.sections:
+            alloc = sec_allocs.get(sec.section_id, [chosen_chapters[0]] * sec.num_questions)
+            sec.chapter_allocation = alloc
+            sec.topics = list(dict.fromkeys(alloc))
+
+        blueprint.allocated_chapters = chosen_chapters
+        blueprint.chapter_marks_allocation = target_marks
+        blueprint.chapter_questions_allocation = target_qs
+
+        parts = [f"{ch} = {target_marks.get(ch, 0)}M ({target_qs.get(ch, 0)}Q)" for ch in chosen_chapters]
         explanation = (
             f"Balanced representative coverage: {n} chapters selected across the {m}-chapter "
             f"syllabus ({', '.join(chosen_chapters)}) because requested question count ({n}) "
-            f"is smaller than available chapters ({m})."
+            f"is smaller than available chapters ({m}). Chapter allocation: {', '.join(parts)}."
         )
-
-        cursor = 0
-        for sec in blueprint.sections:
-            sec_alloc = chosen_chapters[cursor : cursor + sec.num_questions]
-            sec.chapter_allocation = sec_alloc
-            sec.topics = list(dict.fromkeys(sec_alloc))
-            cursor += sec.num_questions
 
     blueprint.coverage_explanation = explanation
     return blueprint, explanation

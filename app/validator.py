@@ -339,6 +339,106 @@ def validate_paper_questions_uniqueness(questions: list[Question]) -> tuple[bool
     return True, None
 
 
+def validate_paper_chapter_marks_distribution(
+    paper: Paper,
+    blueprint: Optional[ExamBlueprint] = None,
+    permitted_chapters: Optional[list[str]] = None,
+) -> tuple[bool, Optional[str], dict[str, int], dict[str, int]]:
+    """
+    Validate the syllabus-wise marks and question distribution across eligible chapters.
+    Catches:
+    1. Chapter neglect: an eligible chapter receives 0 questions or 0 marks when N >= M.
+    2. Single-chapter domination: one chapter monopolizes >= 70% of total marks when M >= 3
+       while other eligible chapters receive <= 2 marks (such as the 1/1/23 marks distribution failure).
+    3. Mathematical inconsistency: section marks, question marks, chapter totals, and overall total.
+    Returns:
+        (is_valid, error_message, actual_chapter_marks, actual_chapter_questions)
+    """
+    actual_marks: dict[str, int] = {}
+    actual_qs: dict[str, int] = {}
+    permitted = permitted_chapters or paper.permitted_units or []
+
+    for q in paper.questions:
+        ch = q.chapter or q.topic or "Unknown"
+        if permitted:
+            for pu in permitted:
+                if pu.lower() in ch.lower() or ch.lower() in pu.lower():
+                    ch = pu
+                    break
+        actual_marks[ch] = actual_marks.get(ch, 0) + q.marks
+        actual_qs[ch] = actual_qs.get(ch, 0) + 1
+
+    # 1. Mathematical consistency check
+    total_q_marks = sum(q.marks for q in paper.questions)
+    if total_q_marks != paper.total_marks:
+        return False, f"Sum of question marks ({total_q_marks}) does not equal paper total marks ({paper.total_marks}).", actual_marks, actual_qs
+
+    total_ch_marks = sum(actual_marks.values())
+    if total_ch_marks != paper.total_marks:
+        return False, f"Sum of chapter marks ({total_ch_marks}) does not equal paper total marks ({paper.total_marks}).", actual_marks, actual_qs
+
+    if paper.sections:
+        for sec in paper.sections:
+            sec_sum = sum(q.marks for q in sec.questions)
+            if sec_sum != sec.section_marks:
+                return False, f"Section '{sec.section_id}' questions mark sum ({sec_sum}) does not equal section marks ({sec.section_marks}).", actual_marks, actual_qs
+
+    # Determine chapters to check
+    chapters_to_check = permitted
+    if not chapters_to_check and blueprint and blueprint.allocated_chapters:
+        chapters_to_check = blueprint.allocated_chapters
+    if not chapters_to_check and paper.covered_chapters:
+        chapters_to_check = paper.covered_chapters
+
+    m = len(chapters_to_check)
+    n = paper.num_questions
+
+    # 2. Neglect Check: when N >= M, every eligible chapter must have at least 1 question & non-zero marks
+    if n >= m and m > 1:
+        zero_chapters = [c for c in chapters_to_check if actual_marks.get(c, 0) == 0 or actual_qs.get(c, 0) == 0]
+        if zero_chapters:
+            return (
+                False,
+                f"Syllabus marks distribution failure: eligible chapter(s) completely neglected with 0 marks: {', '.join(zero_chapters)}.",
+                actual_marks,
+                actual_qs,
+            )
+
+    # 3. Domination Check:
+    # Only applies when N >= M and M >= 3 and total_marks >= 10
+    if n >= m and m >= 3 and paper.total_marks >= 10:
+        for ch, ch_m in actual_marks.items():
+            share = ch_m / paper.total_marks
+            if share >= 0.70:
+                neglected = [c for c in chapters_to_check if c != ch and actual_marks.get(c, 0) <= 2]
+                if neglected:
+                    return (
+                        False,
+                        f"Syllabus marks distribution failure: Chapter '{ch}' dominates with {ch_m}/{paper.total_marks} marks ({share * 100:.1f}%), "
+                        f"while other eligible chapters ({', '.join(neglected)}) receive <= 2 marks. "
+                        f"Expected balanced syllabus distribution across eligible chapters.",
+                        actual_marks,
+                        actual_qs,
+                    )
+
+    # 4. Blueprint Target Deviation Check (if blueprint targets are available)
+    if blueprint and getattr(blueprint, "chapter_marks_allocation", None):
+        target_alloc = blueprint.chapter_marks_allocation
+        for ch, target_m in target_alloc.items():
+            act_m = actual_marks.get(ch, 0)
+            diff = abs(act_m - target_m)
+            max_allowed_diff = max(5, int(0.30 * paper.total_marks))
+            if diff > max_allowed_diff:
+                return (
+                    False,
+                    f"Syllabus marks distribution mismatch: Chapter '{ch}' has {act_m} marks (target: {target_m} marks, diff: {diff}M > allowed {max_allowed_diff}M).",
+                    actual_marks,
+                    actual_qs,
+                )
+
+    return True, None, actual_marks, actual_qs
+
+
 def validate_full_paper(paper: Paper) -> tuple[bool, list[str]]:
     """
     Perform full audit of an assembled paper before saving or presenting to user.
@@ -422,5 +522,13 @@ def validate_full_paper(paper: Paper) -> tuple[bool, list[str]]:
     elif paper.exam_type == ExamType.FINAL:
         if paper.forbidden_units:
             errors.append("Final examination permits content from the full textbook and cannot forbid chapters.")
+
+    # 6. Syllabus-Wise Chapter Marks & Question Distribution
+    dist_ok, dist_err, _, _ = validate_paper_chapter_marks_distribution(
+        paper=paper,
+        permitted_chapters=paper.permitted_units,
+    )
+    if not dist_ok and dist_err:
+        errors.append(dist_err)
 
     return len(errors) == 0, errors

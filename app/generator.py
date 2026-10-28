@@ -1018,6 +1018,66 @@ def generate_questions(
                     except Exception as rep_err:
                         logger.warning("Failed to regenerate forbidden question: %s", rep_err)
 
+        # Syllabus marks distribution enforcement & targeted regeneration
+        if permitted_units and len(permitted_units) > 1 and len(all_questions) >= len(permitted_units):
+            from app.validator import validate_paper_chapter_marks_distribution
+            temp_paper = Paper(
+                paper_id="temp_dist_val",
+                title="Validation Paper",
+                grade=request.academic_grade or request.grade or "Class 3",
+                subject=request.subject or "Mathematics",
+                topic=request.topic or "Mathematics",
+                exam_type=request.exam_type or ExamType.MIDTERM,
+                questions=all_questions,
+                num_questions=len(all_questions),
+                total_marks=sum(q.marks for q in all_questions),
+                document_id=request.document_id or "",
+                permitted_units=permitted_units,
+                forbidden_units=forbidden_units,
+            )
+            dist_ok, dist_err, act_marks, act_qs = validate_paper_chapter_marks_distribution(
+                paper=temp_paper,
+                blueprint=blueprint,
+                permitted_chapters=permitted_units,
+            )
+            if not dist_ok and dist_err:
+                logger.warning("Post-generation marks distribution issue: %s. Performing targeted adjustment...", dist_err)
+                dom_ch = max(act_marks.keys(), key=lambda c: act_marks[c]) if act_marks else None
+                neglected_chapters = [c for c in permitted_units if act_marks.get(c, 0) <= 2]
+                if dom_ch and neglected_chapters:
+                    target_neglected = neglected_chapters[0]
+                    for idx, q in enumerate(all_questions):
+                        if (q.chapter and dom_ch.lower() in q.chapter.lower()) or (q.topic and dom_ch.lower() in q.topic.lower()):
+                            target_sec = blueprint.sections[-1]
+                            for sec in blueprint.sections:
+                                if sec.question_type == q.question_type:
+                                    target_sec = sec
+                                    break
+                            other_qs = [o for o_idx, o in enumerate(all_questions) if o_idx != idx]
+                            logger.info(
+                                "Regenerating question %d from dominating chapter '%s' to neglected chapter '%s'",
+                                idx + 1,
+                                dom_ch,
+                                target_neglected,
+                            )
+                            try:
+                                replacement_q = _regenerate_single_question(
+                                    target_sec=target_sec,
+                                    target_mark=q.marks,
+                                    request=request,
+                                    passages=passages,
+                                    other_questions=other_qs,
+                                    source_refs=source_refs,
+                                    llm=llm,
+                                    permitted_units=permitted_units,
+                                    forbidden_units=forbidden_units,
+                                    target_chapter=target_neglected,
+                                )
+                                all_questions[idx] = replacement_q
+                                break
+                            except Exception as rep_err:
+                                logger.warning("Targeted distribution regeneration failed: %s", rep_err)
+
         return all_questions
 
     # Fallback to single-prompt generation if no sections
