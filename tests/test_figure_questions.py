@@ -432,3 +432,173 @@ def test_generate_section_questions_with_figure_slot_does_not_unbound_alloc():
     assert questions[0].question_subtype == "figure_based"
     assert questions[0].figure is not None
 
+
+# ---------------------------------------------------------------------------
+# 12. render_figure_from_spec handles all structured mathematical types
+# ---------------------------------------------------------------------------
+
+def test_render_figure_from_spec_all_supported_types():
+    """Verify that render_figure_from_spec converts LLM parameters to valid SVG figures."""
+    from app.figures import render_figure_from_spec
+
+    # 1. Multiplication groups
+    fig1 = render_figure_from_spec({
+        "figure_type": "multiplication_groups",
+        "parameters": {"num_groups": 2, "items_per_group": 4, "shape_type": "star"}
+    }, grade=3)
+    assert fig1 is not None
+    assert "<svg" in fig1.svg_content and "</svg>" in fig1.svg_content
+    assert fig1.figure_type == "multiplication_groups"
+
+    # 2. Solid views
+    fig2 = render_figure_from_spec({
+        "figure_type": "solid_views",
+        "parameters": {"solid": "cylinder"}
+    }, grade=4)
+    assert fig2 is not None
+    assert "<svg" in fig2.svg_content and "</svg>" in fig2.svg_content
+
+    # 3. Symmetry shapes
+    fig3 = render_figure_from_spec({
+        "figure_type": "symmetry_shapes",
+        "parameters": {"target_shape": "rectangle", "target_axes": 2}
+    }, grade=3)
+    assert fig3 is not None
+    assert "<svg" in fig3.svg_content and "</svg>" in fig3.svg_content
+
+    # 4. Fraction circle
+    fig4 = render_figure_from_spec({
+        "figure_type": "fraction_circle",
+        "parameters": {"total_parts": 4, "shaded_parts": 3}
+    }, grade=4)
+    assert fig4 is not None
+    assert "<svg" in fig4.svg_content and "</svg>" in fig4.svg_content
+
+    # 5. Grid perimeter
+    fig5 = render_figure_from_spec({
+        "figure_type": "grid_perimeter",
+        "parameters": {"width_units": 4, "height_units": 3}
+    }, grade=4)
+    assert fig5 is not None
+    assert "<svg" in fig5.svg_content and "</svg>" in fig5.svg_content
+
+    # 6. Angle diagram
+    fig6 = render_figure_from_spec({
+        "figure_type": "angle_diagram",
+        "parameters": {"angle_degrees": 120}
+    }, grade=5)
+    assert fig6 is not None
+    assert "<svg" in fig6.svg_content and "</svg>" in fig6.svg_content
+
+    # 7. Counting spatial
+    fig7 = render_figure_from_spec({
+        "figure_type": "counting_spatial",
+        "parameters": {"inside_count": 4, "outside_count": 2}
+    }, grade=1)
+    assert fig7 is not None
+    assert "<svg" in fig7.svg_content and "</svg>" in fig7.svg_content
+
+    # 8. Shape properties
+    fig8 = render_figure_from_spec({
+        "figure_type": "shape_properties",
+        "parameters": {"shape": "triangle", "labels": ["A", "B", "C"]}
+    }, grade=2)
+    assert fig8 is not None
+    assert "<svg" in fig8.svg_content and "</svg>" in fig8.svg_content
+
+    # 9. Pattern sequence
+    fig9 = render_figure_from_spec({
+        "figure_type": "pattern_sequence",
+        "parameters": {"shapes": ["circle", "square", "triangle", "circle", "square"]}
+    }, grade=2)
+    assert fig9 is not None
+    assert "<svg" in fig9.svg_content and "</svg>" in fig9.svg_content
+
+
+def test_render_figure_from_spec_enforces_class_1_boundaries():
+    """Class 1 must never be assigned higher-grade topics like 3D views, fractions, or angles."""
+    from app.figures import render_figure_from_spec
+
+    # Fractions rejected for Class 1
+    assert render_figure_from_spec({"figure_type": "fraction_circle", "parameters": {}}, grade=1) is None
+    # 3D projections rejected for Class 1
+    assert render_figure_from_spec({"figure_type": "solid_views", "parameters": {}}, grade=1) is None
+    # Angles rejected for Class 1
+    assert render_figure_from_spec({"figure_type": "angle_diagram", "parameters": {}}, grade=1) is None
+
+
+# ---------------------------------------------------------------------------
+# 13. LLM structured figure generation integration
+# ---------------------------------------------------------------------------
+
+def test_llm_generated_figure_spec_renders_consistent_question():
+    """Verify that when LLM returns question + figure_spec, figure is rendered and validated."""
+    import json
+    from unittest.mock import MagicMock
+    from app.generator import _generate_section_questions
+    from app.schemas import ExamType
+    from langchain_core.documents import Document
+
+    mock_llm_response = json.dumps([
+        {
+            "question_text": "Look at the given diagram. ray OA and ray OB form an angle of 120 degrees. What kind of angle is shown?",
+            "question_type": "multiple_choice",
+            "marks": 1,
+            "difficulty": "easy",
+            "topic": "Shapes and Angles",
+            "chapter": "Shapes and Angles",
+            "options": ["(A) Acute angle", "(B) Right angle", "(C) Obtuse angle", "(D) Straight angle"],
+            "correct_option": "(C) Obtuse angle",
+            "answer": "(C) Obtuse angle",
+            "solution": "An angle measuring 120 degrees is greater than 90 degrees and less than 180 degrees, so it is an obtuse angle.",
+            "figure_spec": {
+                "figure_type": "angle_diagram",
+                "parameters": {"angle_degrees": 120}
+            }
+        }
+    ])
+
+    mock_llm = MagicMock()
+    mock_invoke_result = MagicMock()
+    mock_invoke_result.content = mock_llm_response
+    mock_llm.invoke.return_value = mock_invoke_result
+
+    sec = SectionBlueprint(
+        section_id="A",
+        title="Section A: Multiple Choice",
+        question_type=QuestionType.MULTIPLE_CHOICE,
+        num_questions=1,
+        section_marks=1,
+        marks_per_question=1,
+        chapter_allocation=["Shapes and Angles"],
+        figure_allocation=[True],
+    )
+    request = PaperGenerateRequest(
+        grade="Class 5",
+        subject="Mathematics",
+        exam_type=ExamType.FINAL,
+        num_questions=1,
+        total_marks=1,
+        include_figure_questions=True,
+    )
+    passages = [
+        Document(page_content="Shapes and angles chapter covering acute, right, and obtuse angles.", metadata={"source": "math-magic-5.pdf", "chapter": "Shapes and Angles"})
+    ]
+
+    questions = _generate_section_questions(
+        sec=sec,
+        request=request,
+        passages=passages,
+        existing_questions=[],
+        source_refs=[],
+        llm=mock_llm,
+    )
+    assert len(questions) == 1
+    q = questions[0]
+    assert q.question_subtype == "figure_based"
+    assert q.figure is not None
+    assert "<svg" in q.figure.svg_content
+    assert q.figure.figure_type == "angle_diagram"
+    assert q.correct_option == "(C) Obtuse angle"
+
+

@@ -565,30 +565,29 @@ CRITICAL SYLLABUS ENFORCEMENT RULES:
     fig_alloc = getattr(sec, "figure_allocation", None) or [False] * needed
     slot_map: dict[int, Question] = {}
 
-    # Pre-generate figure-based questions for designated blueprint figure slots
-    from app.figures import create_figure_question
-    for s_i, is_fig in enumerate(fig_alloc[:needed]):
-        if is_fig:
+    # Fast-path for unit tests when llm is None
+    if llm is None:
+        from app.figures import create_figure_question
+        for s_i, is_fig in enumerate(fig_alloc[:needed]):
             ch = alloc[s_i] if (alloc and s_i < len(alloc)) else (request.topic or "Shapes and Space")
             m = marks_dist[s_i] if s_i < len(marks_dist) else marks_dist[-1]
             diff = sec.difficulty or request.difficulty or Difficulty.MEDIUM
-            fig_q = create_figure_question(
-                grade=request.curriculum_grade or request.academic_grade or request.grade,
-                chapter=ch,
-                question_type=sec.question_type,
-                marks=m,
-                difficulty=diff,
-            )
-            if fig_q:
-                _enrich_question(fig_q, request, source_refs, permitted_units, passages=passages, target_chapter=ch)
-                fig_q.question_subtype = "figure_based"
-                is_dup, _ = is_duplicate(fig_q, existing_questions + list(slot_map.values()))
-                if not is_dup:
+            if is_fig:
+                fig_q = create_figure_question(
+                    grade=request.curriculum_grade or request.academic_grade or request.grade,
+                    chapter=ch,
+                    question_type=sec.question_type,
+                    marks=m,
+                    difficulty=diff,
+                )
+                if fig_q:
+                    _enrich_question(fig_q, request, source_refs, permitted_units, passages=passages, target_chapter=ch)
+                    fig_q.question_subtype = "figure_based"
                     slot_map[s_i] = fig_q
+        if len(slot_map) == needed:
+            return [slot_map[i] for i in range(needed)]
 
     unfilled_slots = [i for i in range(needed) if i not in slot_map]
-    if not unfilled_slots:
-        return [slot_map[i] for i in range(needed)]
 
     # Summary of already generated questions to forbid duplicate concepts/scenarios
     existing_summary = ""
@@ -618,17 +617,45 @@ CRITICAL SYLLABUS ENFORCEMENT RULES:
 
     alloc_guidance = ""
     alloc = getattr(sec, "chapter_allocation", None) or []
+    has_figure_slots = any(fig_alloc[:needed])
     if alloc:
-        alloc_lines = [
-            f"  - Slot {idx+1}: Chapter '{ch}' ({sec.question_type.value}, {marks_dist[idx] if idx < len(marks_dist) else marks_dist[-1]}M)"
-            for idx, ch in enumerate(alloc[:needed])
-        ]
+        alloc_lines = []
+        for idx, ch in enumerate(alloc[:needed]):
+            is_fig = fig_alloc[idx] if idx < len(fig_alloc) else False
+            fig_tag = " [FIGURE-BASED: visual question with 'figure_spec']" if is_fig else ""
+            m_val = marks_dist[idx] if idx < len(marks_dist) else marks_dist[-1]
+            alloc_lines.append(
+                f"  - Slot {idx+1}{fig_tag}: Chapter '{ch}' ({sec.question_type.value}, {m_val}M)"
+            )
         alloc_guidance = (
             "\n\nCHAPTER ALLOCATION BLUEPRINT FOR THIS SECTION (MANDATORY):\n"
             "You MUST allocate each question in order to its designated chapter below:\n"
             + "\n".join(alloc_lines)
             + "\nCRITICAL: In your output JSON, populate the 'chapter' field with the exact chapter name designated for that slot and ground it in the reference passage for that chapter."
         )
+
+    figure_spec_guidance = ""
+    if has_figure_slots:
+        figure_spec_guidance = """
+
+CRITICAL REQUIREMENT FOR FIGURE-BASED SLOTS:
+For any slot marked [FIGURE-BASED], you MUST generate a syllabus-aligned visual mathematics question and include a "figure_spec" field in the question JSON with structured mathematical data to render the diagram:
+"figure_spec": {
+    "figure_type": "<type>",
+    "parameters": { ... }
+}
+Available figure types & parameters:
+- "multiplication_groups": {"num_groups": int, "items_per_group": int, "shape_type": "star" | "circle"}
+- "solid_views": {"solid": "cylinder" | "cone" | "cube" | "cuboid"}
+- "symmetry_shapes": {"target_shape": "rectangle" | "square" | "triangle" | "circle", "target_axes": int}
+- "fraction_circle": {"total_parts": int, "shaded_parts": int}
+- "grid_perimeter": {"width_units": int, "height_units": int}
+- "angle_diagram": {"angle_degrees": int}
+- "counting_spatial": {"inside_count": int, "outside_count": int}
+- "shape_properties": {"shape": "triangle" | "square" | "rectangle" | "pentagon" | "hexagon"}
+- "pattern_sequence": {"shapes": ["circle", "square", "triangle", "circle", "square"]}
+
+The question text, options, answer, and solution MUST reference the figure naturally (e.g. 'In the given figure...', 'Look at the diagram...', 'Which solid is represented by the given views?') and match the figure_spec parameters exactly!"""
 
     human_prompt = f"""Generate questions for Section '{sec.section_id}' ({sec.title}):
 
@@ -639,13 +666,13 @@ CRITICAL SYLLABUS ENFORCEMENT RULES:
 - Difficulty: {sec_difficulty.value}
 - Total questions needed in this section: {needed}
 - Marks per question: {marks_dist} (total section marks: {sec.section_marks})
-{pedagogical_guidance}{alloc_guidance}
+{pedagogical_guidance}{alloc_guidance}{figure_spec_guidance}
 
 SECTION-SPECIFIC INSTRUCTIONS:
 1. Every question MUST be of type "{sec.question_type.value}".
 {"2. For multiple_choice questions, provide exactly 4 clear options (A, B, C, D) and identify the correct_option matching one of them." if sec.question_type == QuestionType.MULTIPLE_CHOICE else "2. Provide complete, clear worked solutions and marking steps."}
 3. DIVERSITY & NON-DUPLICATION REQUIREMENT: Cover different chapters/concepts across the reference passages (e.g. arithmetic, geometry/shapes, measurement, time/money, patterns, word problems). Do NOT generate repetitive questions with just different numbers.{coherence_rule}
-5. SELF-CONTAINED CLARITY: Every question must contain all information and numbers necessary to solve it. NEVER refer to non-existent visual diagrams, pictures, tables, or figures (do NOT say 'as shown in the figure below', 'look at the diagram', etc.). Do NOT end questions with dangling colons.
+5. SELF-CONTAINED CLARITY: For standard non-figure questions, never refer to non-existent visual diagrams. For slots designated [FIGURE-BASED], you MUST reference the figure and provide the matching 'figure_spec'.
 6. AGE APPROPRIATENESS: Strictly suitable for primary school students in {academic_class}.
 7. Ground all questions directly in the PERMITTED CHAPTERS from the REFERENCE PASSAGES below. Do NOT touch any forbidden topics.{existing_summary}
 
@@ -713,8 +740,40 @@ Return ONLY a JSON array of {needed} question objects."""
                             continue
 
                     slot_ch = alloc[target_slot] if (alloc and target_slot < len(alloc)) else None
+                    is_fig_slot = fig_alloc[target_slot] if target_slot < len(fig_alloc) else False
+
+                    # Process structured figure data if provided or if slot requires a figure
+                    figure_obj = None
+                    if "figure_spec" in q_dict and q_dict["figure_spec"]:
+                        from app.figures import render_figure_from_spec
+                        figure_obj = render_figure_from_spec(
+                            q_dict["figure_spec"],
+                            grade=request.curriculum_grade or request.academic_grade or request.grade,
+                        )
+
+                    if is_fig_slot and not figure_obj:
+                        from app.figures import create_figure_question
+                        ch_for_fig = slot_ch or request.topic or "Shapes and Space"
+                        fallback_q = create_figure_question(
+                            grade=request.curriculum_grade or request.academic_grade or request.grade,
+                            chapter=ch_for_fig,
+                            question_type=sec.question_type,
+                            marks=target_mark,
+                            difficulty=sec_difficulty,
+                        )
+                        if fallback_q and fallback_q.figure:
+                            figure_obj = fallback_q.figure
+                            if not any(k in q_dict.get("question_text", "").lower() for k in ("figure", "diagram", "shown", "views", "shape", "star", "circle")):
+                                q_dict["question_text"] = fallback_q.question_text
+                                q_dict["options"] = fallback_q.options
+                                q_dict["correct_option"] = fallback_q.correct_option
+                                q_dict["answer"] = fallback_q.answer
+                                q_dict["solution"] = fallback_q.solution
 
                     q = Question.model_validate(q_dict)
+                    if figure_obj:
+                        q.figure = figure_obj
+                        q.question_subtype = "figure_based"
                     _enrich_question(q, request, source_refs, permitted_units, passages=passages, target_chapter=slot_ch)
 
                     # 1. Quality, Clarity & Coherence validation
@@ -862,6 +921,13 @@ def _regenerate_single_question(
 
     pedagogical_guidance = get_grade_pedagogical_prompt(request.curriculum_grade or request.academic_grade or request.grade, target_sec.question_type)
 
+    fig_instruction = ""
+    if is_figure:
+        fig_instruction = """
+CRITICAL: This is a FIGURE-BASED question. You MUST include a "figure_spec" object with structured mathematical data to render the figure (e.g. "figure_type": "solid_views" | "multiplication_groups" | "symmetry_shapes" | "fraction_circle" | "shape_properties", "parameters": {...}).
+Refer to the diagram naturally in the question text.
+"""
+
     prompt = f"""Generate EXACTLY ONE replacement question for Section '{target_sec.section_id}' ({target_sec.title}):
 - Class: {academic_class}
 - Subject: {request.subject}
@@ -869,10 +935,10 @@ def _regenerate_single_question(
 - Marks: {target_mark}
 - Difficulty: {(target_sec.difficulty or request.difficulty or Difficulty.MEDIUM).value}
 {target_chapter_instruction}{forbidden_scope_instruction}
-{pedagogical_guidance}
+{pedagogical_guidance}{fig_instruction}
 STRICT CONSTRAINTS:
 1. Question must be of type "{target_sec.question_type.value}" worth exactly {target_mark} marks.
-2. Must be completely self-contained. Do NOT refer to diagrams, figures, or tables.
+2. {"Must reference the figure and provide a structured 'figure_spec' object to render its diagram." if is_figure else "Must be completely self-contained. Do NOT refer to diagrams, figures, or tables."}
 3. Coherent single scenario (never combine unrelated settings).
 4. FORBIDDEN SCENARIOS (DO NOT REPEAT OR RESKIN ANY OF THESE):
 {forbidden_text}
@@ -921,7 +987,31 @@ Return ONLY a JSON array containing exactly 1 question object."""
                     if is_forb:
                         continue
 
+                fig_obj = None
+                if is_figure:
+                    if "figure_spec" in q_dict and q_dict["figure_spec"]:
+                        from app.figures import render_figure_from_spec
+                        fig_obj = render_figure_from_spec(
+                            q_dict["figure_spec"],
+                            grade=request.curriculum_grade or request.academic_grade or request.grade,
+                        )
+                    if not fig_obj:
+                        from app.figures import create_figure_question
+                        ch_for_fig = target_chapter or (target_sec.topics[0] if getattr(target_sec, "topics", None) else (request.topic or "Shapes and Space"))
+                        fallback_q = create_figure_question(
+                            grade=request.curriculum_grade or request.academic_grade or request.grade,
+                            chapter=ch_for_fig,
+                            question_type=target_sec.question_type,
+                            marks=target_mark,
+                            difficulty=target_sec.difficulty or request.difficulty or Difficulty.MEDIUM,
+                        )
+                        if fallback_q:
+                            fig_obj = fallback_q.figure
+
                 q = Question.model_validate(q_dict)
+                if fig_obj:
+                    q.figure = fig_obj
+                    q.question_subtype = "figure_based"
                 _enrich_question(q, request, source_refs, permitted_units, passages=passages, target_chapter=target_chapter)
 
                 q_ok, q_err = validate_question_quality(q)

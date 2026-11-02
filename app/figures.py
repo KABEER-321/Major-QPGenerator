@@ -504,6 +504,210 @@ def render_counting_spatial_svg(inside_count: int = 4, outside_count: int = 2) -
 
 
 # ---------------------------------------------------------------------------
+# 5. Geometrical Shape Properties (Sides & Vertices) SVG Generator
+# ---------------------------------------------------------------------------
+
+def render_shape_properties_svg(shape: str = "triangle", labels: list[str] | None = None) -> str:
+    """
+    Renders a clean geometric polygon with vertex labels (e.g. A, B, C)
+    for questions assessing sides, vertices, and shape properties.
+    """
+    shape_norm = (shape or "triangle").lower()
+    svg_w = 260
+    svg_h = 160
+    elements = [
+        f'<svg width="{svg_w}" height="{svg_h}" viewBox="0 0 {svg_w} {svg_h}" xmlns="http://www.w3.org/2000/svg" style="background:#ffffff; font-family:Arial, sans-serif;">'
+    ]
+    if "rect" in shape_norm:
+        elements.append('<rect x="50" y="40" width="160" height="80" fill="#f8fafc" stroke="#0f172a" stroke-width="2"/>')
+        lbls = labels or ["A", "B", "C", "D"]
+        pts = [(45, 35), (215, 35), (215, 130), (45, 130)]
+        for (px, py), l in zip(pts, lbls[:4]):
+            elements.append(f'<text x="{px}" y="{py}" font-size="12" font-weight="bold" fill="#1e3a8a">{l}</text>')
+    elif "square" in shape_norm:
+        elements.append('<rect x="80" y="30" width="100" height="100" fill="#f8fafc" stroke="#0f172a" stroke-width="2"/>')
+        lbls = labels or ["A", "B", "C", "D"]
+        pts = [(75, 25), (185, 25), (185, 140), (75, 140)]
+        for (px, py), l in zip(pts, lbls[:4]):
+            elements.append(f'<text x="{px}" y="{py}" font-size="12" font-weight="bold" fill="#1e3a8a">{l}</text>')
+    elif "penta" in shape_norm:
+        points = "130,25 210,80 180,145 80,145 50,80"
+        elements.append(f'<polygon points="{points}" fill="#f8fafc" stroke="#0f172a" stroke-width="2"/>')
+        lbls = labels or ["A", "B", "C", "D", "E"]
+        coords = [(130, 18), (220, 80), (185, 155), (75, 155), (40, 80)]
+        for (px, py), l in zip(coords, lbls[:5]):
+            elements.append(f'<text x="{px}" y="{py}" font-size="12" font-weight="bold" fill="#1e3a8a" text-anchor="middle">{l}</text>')
+    elif "hexa" in shape_norm:
+        points = "90,30 170,30 210,80 170,130 90,130 50,80"
+        elements.append(f'<polygon points="{points}" fill="#f8fafc" stroke="#0f172a" stroke-width="2"/>')
+        lbls = labels or ["A", "B", "C", "D", "E", "F"]
+        coords = [(85, 22), (175, 22), (222, 85), (175, 142), (85, 142), (38, 85)]
+        for (px, py), l in zip(coords, lbls[:6]):
+            elements.append(f'<text x="{px}" y="{py}" font-size="12" font-weight="bold" fill="#1e3a8a" text-anchor="middle">{l}</text>')
+    else:
+        points = "130,30 50,130 210,130"
+        elements.append(f'<polygon points="{points}" fill="#f8fafc" stroke="#0f172a" stroke-width="2"/>')
+        lbls = labels or ["A", "B", "C"]
+        coords = [(130, 20), (40, 140), (220, 140)]
+        for (px, py), l in zip(coords, lbls[:3]):
+            elements.append(f'<text x="{px}" y="{py}" font-size="12" font-weight="bold" fill="#1e3a8a" text-anchor="middle">{l}</text>')
+
+    elements.append("</svg>")
+    return "\n".join(elements)
+
+
+# ---------------------------------------------------------------------------
+# 6. Visual Geometric Pattern Sequence SVG Generator
+# ---------------------------------------------------------------------------
+
+def render_pattern_sequence_svg(shapes: list[str] | None = None) -> str:
+    """
+    Renders a sequence of geometrical shapes in boxes followed by a '?' box
+    for visual pattern reasoning (Classes 1-3).
+    """
+    items = list(shapes) if shapes else ["circle", "square", "triangle", "circle", "square"]
+    box_w = 46
+    box_h = 46
+    gap = 10
+    total_boxes = len(items) + 1  # plus question mark box
+    svg_w = 20 + total_boxes * (box_w + gap)
+    svg_h = 70
+
+    elements = [
+        f'<svg width="{svg_w}" height="{svg_h}" viewBox="0 0 {svg_w} {svg_h}" xmlns="http://www.w3.org/2000/svg" style="background:#ffffff; font-family:Arial, sans-serif;">'
+    ]
+
+    for idx, sh in enumerate(items):
+        bx = 10 + idx * (box_w + gap)
+        by = 12
+        cx = bx + box_w / 2
+        cy = by + box_h / 2
+        elements.append(f'<rect x="{bx}" y="{by}" width="{box_w}" height="{box_h}" rx="4" fill="#ffffff" stroke="#94a3b8" stroke-width="1.2"/>')
+        s_norm = sh.lower()
+        if "circle" in s_norm:
+            elements.append(f'<circle cx="{cx}" cy="{cy}" r="14" fill="#e2e8f0" stroke="#0f172a" stroke-width="1.5"/>')
+        elif "square" in s_norm:
+            elements.append(f'<rect x="{cx - 12}" y="{cy - 12}" width="24" height="24" fill="#e2e8f0" stroke="#0f172a" stroke-width="1.5"/>')
+        elif "triang" in s_norm:
+            elements.append(f'<polygon points="{cx},{cy - 14} {cx - 14},{cy + 12} {cx + 14},{cy + 12}" fill="#e2e8f0" stroke="#0f172a" stroke-width="1.5"/>')
+        elif "star" in s_norm:
+            elements.append(_star_polygon(cx, cy, 12))
+        else:
+            elements.append(f'<circle cx="{cx}" cy="{cy}" r="14" fill="#e2e8f0" stroke="#0f172a" stroke-width="1.5"/>')
+
+    # '?' box
+    qbx = 10 + len(items) * (box_w + gap)
+    qby = 12
+    qcx = qbx + box_w / 2
+    qcy = qby + box_h / 2
+    elements.append(f'<rect x="{qbx}" y="{qby}" width="{box_w}" height="{box_h}" rx="4" fill="#f8fafc" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="3,3"/>')
+    elements.append(f'<text x="{qcx}" y="{qcy + 6}" font-size="20" font-weight="bold" fill="#2563eb" text-anchor="middle">?</text>')
+
+    elements.append("</svg>")
+    return "\n".join(elements)
+
+
+# ---------------------------------------------------------------------------
+# Structured Mathematical Spec Renderer (Directly converts LLM parameters to FigureData)
+# ---------------------------------------------------------------------------
+
+def render_figure_from_spec(spec: dict, grade: int | str = 3) -> Optional[FigureData]:
+    """
+    Render a high-precision vector SVG diagram from LLM-generated structured mathematical data.
+    Validates grade boundaries (no fractions or 3D projections for Class 1) and returns FigureData.
+    """
+    if not isinstance(spec, dict):
+        return None
+
+    ftype = spec.get("figure_type", "").strip().lower()
+    params = spec.get("parameters", {})
+    if not isinstance(params, dict):
+        params = {}
+
+    from app.curriculum import parse_grade_number
+    g_num = parse_grade_number(str(grade)) or 3
+
+    # Enforce Grade 1 restrictions: strictly no fractions, 3D projections, or angles
+    if g_num <= 1 and ftype in ("fraction_circle", "fraction_shape", "solid_views", "angle_diagram", "grid_perimeter"):
+        return None
+    if g_num <= 2 and ftype in ("angle_diagram", "solid_views"):
+        return None
+
+    try:
+        if ftype in ("multiplication_groups", "visual_multiplication"):
+            num_g = int(params.get("num_groups", 2))
+            items_g = int(params.get("items_per_group", 4))
+            stype = str(params.get("shape_type", "star"))
+            if params.get("style") == "stem_only":
+                svg = render_group_count_stem_svg(num_g, items_g, shape_type=stype)
+                title = f"{num_g} Equal Groups of {items_g}"
+            else:
+                svg, _, _ = render_multiplication_options_svg(num_g, items_g, shape_type=stype)
+                title = f"Multiplication Groups Diagram ({items_g} x {num_g})"
+            return FigureData(figure_type="multiplication_groups", title=title, svg_content=svg, parameters=params)
+
+        elif ftype in ("solid_views", "geometry_solids"):
+            solid = str(params.get("solid", "cylinder")).lower()
+            if "cone" in solid:
+                s_shape, t_shape = "triangle", "circle"
+            elif "cube" in solid:
+                s_shape, t_shape = "square", "square"
+            elif "cuboid" in solid:
+                s_shape, t_shape = "rectangle", "rectangle"
+            else:
+                s_shape, t_shape = "rectangle", "circle"
+            svg, _, _ = render_solid_views_question_svg(side_view_shape=s_shape, top_view_shape=t_shape)
+            return FigureData(figure_type="solid_views", title=f"Solid Object Projections ({solid.title()})", svg_content=svg, parameters=params)
+
+        elif ftype in ("symmetry_shapes", "symmetry"):
+            svg, _, _ = render_symmetry_shapes_options_svg()
+            return FigureData(figure_type="symmetry_shapes", title="Geometrical Shapes & Symmetry Axes", svg_content=svg, parameters=params)
+
+        elif ftype in ("fraction_circle", "fraction_shape", "fraction"):
+            tot = int(params.get("total_parts", params.get("denominator", 4)))
+            sha = int(params.get("shaded_parts", params.get("numerator", 3)))
+            tot = max(2, min(12, tot))
+            sha = max(1, min(tot - 1, sha))
+            svg = render_fraction_circle_svg(total_parts=tot, shaded_parts=sha)
+            return FigureData(figure_type="fraction_circle", title=f"Fraction Circle ({sha}/{tot} shaded)", svg_content=svg, parameters=params)
+
+        elif ftype in ("grid_perimeter", "perimeter_grid", "perimeter"):
+            w = int(params.get("width_units", params.get("width", 4)))
+            h = int(params.get("height_units", params.get("height", 3)))
+            w = max(2, min(8, w))
+            h = max(2, min(6, h))
+            svg = render_grid_perimeter_svg(width_units=w, height_units=h)
+            return FigureData(figure_type="grid_perimeter", title=f"Perimeter Grid ({w} x {h} units)", svg_content=svg, parameters=params)
+
+        elif ftype in ("angle_diagram", "angle_protractor", "angle"):
+            deg = int(params.get("angle_degrees", params.get("angle", 120)))
+            svg = render_angle_diagram_svg(angle_degrees=deg)
+            return FigureData(figure_type="angle_diagram", title=f"Angle Diagram ({deg}°)", svg_content=svg, parameters=params)
+
+        elif ftype in ("counting_spatial", "spatial_counting", "counting"):
+            inc = int(params.get("inside_count", 4))
+            outc = int(params.get("outside_count", 2))
+            svg = render_counting_spatial_svg(inside_count=inc, outside_count=outc)
+            return FigureData(figure_type="counting_spatial", title="Spatial Boundary Counting", svg_content=svg, parameters=params)
+
+        elif ftype in ("shape_properties", "geometric_shape", "shape"):
+            sh = str(params.get("shape", "triangle")).lower()
+            lbls = params.get("labels")
+            svg = render_shape_properties_svg(shape=sh, labels=lbls)
+            return FigureData(figure_type="shape_properties", title=f"Geometrical Shape ({sh.title()})", svg_content=svg, parameters=params)
+
+        elif ftype in ("pattern_sequence", "patterns", "pattern"):
+            shs = params.get("shapes", ["circle", "square", "triangle", "circle", "square"])
+            svg = render_pattern_sequence_svg(shapes=shs)
+            return FigureData(figure_type="pattern_sequence", title="Visual Pattern Sequence", svg_content=svg, parameters=params)
+
+    except Exception:
+        return None
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # High-Level Factory: create_figure_question
 # ---------------------------------------------------------------------------
 
