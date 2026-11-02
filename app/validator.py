@@ -25,8 +25,9 @@ from app.schemas import (
 # Patterns indicating references to non-existent visual diagrams/figures/tables
 VISUAL_REF_PATTERN = re.compile(
     r"\b(?:figure|diagram|picture|image|table)\s+(?:below|above|given|shown|adjacent|here)\b|"
-    r"\b(?:as\s+shown\s+in\s+(?:the\s+)?(?:figure|diagram|picture|table))\b|"
-    r"\b(?:look\s+at\s+the\s+(?:figure|diagram|picture|table))\b|"
+    r"\b(?:as\s+shown\s+in\s+(?:the\s+)?(?:given\s+)?(?:figure|diagram|picture|table))\b|"
+    r"\b(?:in\s+the\s+(?:given\s+)?(?:figure|diagram|picture|table))\b|"
+    r"\b(?:look\s+at\s+the\s+(?:given\s+)?(?:figure|diagram|picture|table))\b|"
     r"\b(?:from\s+the\s+(?:given\s+)?(?:figure|diagram|picture|table))\b",
     re.IGNORECASE,
 )
@@ -82,6 +83,7 @@ def check_question_clarity(
     text: str,
     qtype: QuestionType,
     options: Optional[list[str]] = None,
+    figure: Optional[Any] = None,
 ) -> tuple[bool, Optional[str]]:
     """
     Check if a question is complete, self-contained, and understandable.
@@ -93,10 +95,16 @@ def check_question_clarity(
 
     # 1. Reject references to non-existent visual diagrams
     m = VISUAL_REF_PATTERN.search(clean)
-    if m:
+    has_valid_figure = bool(
+        figure
+        and getattr(figure, "svg_content", None)
+        and "<svg" in figure.svg_content
+        and "</svg>" in figure.svg_content
+    )
+    if m and not has_valid_figure:
         return (
             False,
-            f"Question references missing visual artifact ('{m.group(0)}'). Question must be fully self-contained.",
+            f"Question references missing visual artifact ('{m.group(0)}'). Question must be fully self-contained or have a valid figure attached.",
         )
 
     # 2. Reject textbook meta-references
@@ -274,8 +282,16 @@ def validate_question_quality(q: Question) -> tuple[bool, Optional[str]]:
     Perform full quality validation on an individual question.
     Checks: clarity, coherence, MCQ completeness, SymPy mathematical check, mark allocation, and age-appropriateness.
     """
+    # 0. Figure-based question integrity check
+    if getattr(q, "question_subtype", None) == "figure_based":
+        if not getattr(q, "figure", None):
+            return False, "Figure-based question is missing its figure data."
+        svg = getattr(q.figure, "svg_content", "") or ""
+        if not svg or "<svg" not in svg or "</svg>" not in svg:
+            return False, "Figure-based question contains missing or corrupted SVG diagram."
+
     # 1. Clarity check
-    ok, err = check_question_clarity(q.question_text, q.question_type, q.options)
+    ok, err = check_question_clarity(q.question_text, q.question_type, q.options, figure=getattr(q, "figure", None))
     if not ok:
         return False, err
 

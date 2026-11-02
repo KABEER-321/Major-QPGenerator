@@ -561,6 +561,34 @@ CRITICAL SYLLABUS ENFORCEMENT RULES:
     needed = sec.num_questions
     sec_difficulty = sec.difficulty or request.difficulty or Difficulty.MEDIUM
 
+    fig_alloc = getattr(sec, "figure_allocation", None) or [False] * needed
+    slot_map: dict[int, Question] = {}
+
+    # Pre-generate figure-based questions for designated blueprint figure slots
+    from app.figures import create_figure_question
+    for s_i, is_fig in enumerate(fig_alloc[:needed]):
+        if is_fig:
+            ch = alloc[s_i] if (alloc and s_i < len(alloc)) else (request.topic or "Shapes and Space")
+            m = marks_dist[s_i] if s_i < len(marks_dist) else marks_dist[-1]
+            diff = sec.difficulty or request.difficulty or Difficulty.MEDIUM
+            fig_q = create_figure_question(
+                grade=request.curriculum_grade or request.academic_grade or request.grade,
+                chapter=ch,
+                question_type=sec.question_type,
+                marks=m,
+                difficulty=diff,
+            )
+            if fig_q:
+                _enrich_question(fig_q, request, source_refs, permitted_units, passages=passages, target_chapter=ch)
+                fig_q.question_subtype = "figure_based"
+                is_dup, _ = is_duplicate(fig_q, existing_questions + list(slot_map.values()))
+                if not is_dup:
+                    slot_map[s_i] = fig_q
+
+    unfilled_slots = [i for i in range(needed) if i not in slot_map]
+    if not unfilled_slots:
+        return [slot_map[i] for i in range(needed)]
+
     # Summary of already generated questions to forbid duplicate concepts/scenarios
     existing_summary = ""
     if existing_questions:
@@ -650,12 +678,13 @@ Return ONLY a JSON array of {needed} question objects."""
                 raise ValueError("Expected a JSON array of questions.")
 
             for q_dict in questions_data:
-                if len(sec_questions) >= needed:
+                if not unfilled_slots:
                     break
                 try:
+                    target_slot = unfilled_slots[0]
                     target_mark = (
-                        marks_dist[len(sec_questions)]
-                        if len(sec_questions) < len(marks_dist)
+                        marks_dist[target_slot]
+                        if target_slot < len(marks_dist)
                         else marks_dist[-1]
                     )
                     q_dict["question_type"] = sec.question_type.value
@@ -682,8 +711,7 @@ Return ONLY a JSON array of {needed} question objects."""
                             rejection_reasons.append(forb_reason)
                             continue
 
-                    slot_num = len(sec_questions)
-                    slot_ch = alloc[slot_num] if (alloc and slot_num < len(alloc)) else None
+                    slot_ch = alloc[target_slot] if (alloc and target_slot < len(alloc)) else None
 
                     q = Question.model_validate(q_dict)
                     _enrich_question(q, request, source_refs, permitted_units, passages=passages, target_chapter=slot_ch)
@@ -704,35 +732,36 @@ Return ONLY a JSON array of {needed} question objects."""
                             rejection_reasons.append(forb_reason2)
                             continue
 
-                    # 3. Deduplication against both prior sections and current section
-                    is_dup, dup_reason = is_duplicate(q, existing_questions + sec_questions)
+                    # 3. Deduplication against prior sections and currently accepted questions
+                    is_dup, dup_reason = is_duplicate(q, existing_questions + list(slot_map.values()))
                     if is_dup:
                         reason = f"Duplicate detected: {dup_reason}"
                         logger.warning("Rejecting duplicate question: %s", dup_reason)
                         rejection_reasons.append(reason)
                         continue
 
-                    sec_questions.append(q)
+                    slot_map[target_slot] = q
+                    unfilled_slots.pop(0)
                 except Exception as val_err:
                     reason = f"Validation exception: {val_err}"
                     logger.debug("Skipping invalid question in section %s: %s", sec.section_id, val_err)
                     rejection_reasons.append(reason)
                     continue
 
-            if len(sec_questions) >= needed:
+            if not unfilled_slots:
                 break
 
-            deficit = needed - len(sec_questions)
+            deficit = len(unfilled_slots)
             if attempt < max_attempts:
-                missing_marks = marks_dist[len(sec_questions) : needed]
+                missing_marks = [marks_dist[i] if i < len(marks_dist) else marks_dist[-1] for i in unfilled_slots]
                 accepted_lines = [
                     f"  - Q ({q.question_type.value}, {q.marks}M): {q.question_text}"
-                    for q in (existing_questions + sec_questions)
+                    for q in (existing_questions + list(slot_map.values()))
                 ]
                 accepted_summary = "\n".join(accepted_lines)
                 candidate_target = deficit + 2
 
-                retry_prompt = f"""We have accepted {len(sec_questions)} out of {needed} questions for Section '{sec.section_id}' ({sec.title}).
+                retry_prompt = f"""We have accepted {len(slot_map)} out of {needed} questions for Section '{sec.section_id}' ({sec.title}).
 We now need EXACTLY {deficit} more valid, unique questions of type '{sec.question_type.value}' to fill the remaining slots.
 Target marks for the {deficit} missing slots: {missing_marks} (total: {sum(missing_marks)} marks).
 
@@ -762,15 +791,15 @@ Return ONLY a JSON array containing {candidate_target} distinct question objects
                     HumanMessage(content=f"Previous attempt error: {e}. Return ONLY a valid JSON array.")
                 )
 
-    if len(sec_questions) < needed:
+    if unfilled_slots:
         recent_reasons = "; ".join(rejection_reasons[-4:]) if rejection_reasons else "No candidates returned"
         raise RuntimeError(
             f"Failed to generate {needed} valid questions for Section '{sec.section_id}' ({sec.title}). "
-            f"Obtained {len(sec_questions)} valid questions (needed {needed - len(sec_questions)} more). "
+            f"Obtained {len(slot_map)} valid questions (needed {len(unfilled_slots)} more). "
             f"Candidate rejection details: {recent_reasons}"
         )
 
-    return sec_questions[:needed]
+    return [slot_map[i] for i in range(needed) if i in slot_map]
 
 
 def _regenerate_single_question(
@@ -784,11 +813,29 @@ def _regenerate_single_question(
     permitted_units: list[str] | None = None,
     forbidden_units: list[str] | None = None,
     target_chapter: str | None = None,
+    is_figure: bool = False,
 ) -> Question:
     """
     Regenerate a single question within an existing section to replace a duplicate
     or low-quality question without changing the paper structure.
     """
+    if is_figure:
+        from app.figures import create_figure_question
+        ch = target_chapter or (target_sec.topics[0] if getattr(target_sec, "topics", None) else (request.topic or "Shapes and Space"))
+        fig_q = create_figure_question(
+            grade=request.curriculum_grade or request.academic_grade or request.grade,
+            chapter=ch,
+            question_type=target_sec.question_type,
+            marks=target_mark,
+            difficulty=target_sec.difficulty or request.difficulty or Difficulty.MEDIUM,
+        )
+        if fig_q:
+            _enrich_question(fig_q, request, source_refs, permitted_units, passages=passages, target_chapter=ch)
+            fig_q.question_subtype = "figure_based"
+            is_dup, _ = is_duplicate(fig_q, other_questions)
+            if not is_dup:
+                return fig_q
+
     passage_text = "\n---\n".join(
         f"[Passage {i+1} from {doc.metadata.get('source', 'unknown')}]\n{doc.page_content}"
         for i, doc in enumerate(passages)
@@ -966,6 +1013,7 @@ def generate_questions(
                             target_sec.section_id,
                         )
                         try:
+                            is_fig_bad = getattr(bad_q, "question_subtype", None) == "figure_based"
                             replacement_q = _regenerate_single_question(
                                 target_sec=target_sec,
                                 target_mark=bad_q.marks,
@@ -977,6 +1025,7 @@ def generate_questions(
                                 permitted_units=permitted_units,
                                 forbidden_units=forbidden_units,
                                 target_chapter=bad_q.chapter,
+                                is_figure=is_fig_bad,
                             )
                             all_questions[dup_idx] = replacement_q
                             sec_list = section_map[target_sec.section_id]
@@ -1003,6 +1052,7 @@ def generate_questions(
                             break
                     other_qs = [o for o_idx, o in enumerate(all_questions) if o_idx != idx]
                     try:
+                        is_fig_q = getattr(q, "question_subtype", None) == "figure_based"
                         replacement_q = _regenerate_single_question(
                             target_sec=target_sec,
                             target_mark=q.marks,
@@ -1014,6 +1064,7 @@ def generate_questions(
                             permitted_units=permitted_units,
                             forbidden_units=forbidden_units,
                             target_chapter=permitted_units[0] if permitted_units else None,
+                            is_figure=is_fig_q,
                         )
                         all_questions[idx] = replacement_q
                     except Exception as rep_err:
@@ -1233,7 +1284,7 @@ CRITICAL SYLLABUS ENFORCEMENT RULES:
 - Academic Class: {academic_class}
 - Scope: {scope_str} (Full Syllabus)"""
 
-        effective_class = request.curriculum_grade or request.academic_grade or request.grade
+        effective_class = curriculum_grade or academic_grade or grade
         pedagogical_guidance = get_grade_pedagogical_prompt(effective_class, sec.question_type)
 
         human_prompt = f"""Generate candidate questions for Section '{sec.section_id}' ({sec.title}) with these specifications:

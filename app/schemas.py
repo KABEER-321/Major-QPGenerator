@@ -203,6 +203,18 @@ class MathVerificationResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Figure data — metadata and vector SVG for visual math questions
+# ---------------------------------------------------------------------------
+
+class FigureData(BaseModel):
+    """Programmatically generated mathematical figure/diagram metadata and vector graphics."""
+    figure_type: str = Field(..., description="Type of figure, e.g. 'multiplication_groups', 'solid_views', 'symmetry_shapes', 'fraction_shape', 'perimeter_grid', 'angle_rays', 'counting_spatial'")
+    title: Optional[str] = Field(default="", description="Descriptive title or caption for the figure")
+    svg_content: str = Field(..., description="Raw vector SVG string of the mathematical diagram")
+    parameters: dict = Field(default_factory=dict, description="Numerical/geometrical parameters used to render the figure")
+
+
+# ---------------------------------------------------------------------------
 # Source reference — tracks which syllabus passage a question was based on
 # ---------------------------------------------------------------------------
 
@@ -269,6 +281,14 @@ class Question(BaseModel):
         default=None,
         description="The correct option text (must match one of the options)",
     )
+    question_subtype: Optional[str] = Field(
+        default=None,
+        description="Subtype of question, e.g. 'figure_based' for questions containing visual diagrams",
+    )
+    figure: Optional[FigureData] = Field(
+        default=None,
+        description="Figure data containing SVG content and metadata for visual questions",
+    )
 
     # --- Traceability & validation fields ---
     source_references: list[SourceReference] = Field(
@@ -323,6 +343,7 @@ class SectionBlueprint(BaseModel):
     difficulty: Optional[Difficulty] = Field(default=None, description="Difficulty level for this section")
     topics: Optional[list[str]] = Field(default=None, description="Specific topics or subtopics for this section")
     chapter_allocation: Optional[list[str]] = Field(default=None, description="Assigned chapter for each question slot in this section")
+    figure_allocation: Optional[list[bool]] = Field(default=None, description="Assigned figure flag for each question slot in this section")
     instructions: Optional[str] = Field(default=None, description="Instructions for students in this section")
 
     @model_validator(mode="after")
@@ -384,6 +405,7 @@ class ExamBlueprint(BaseModel):
         description="Unique identifier for this blueprint",
     )
     title: str = Field(default="Mathematics Examination Blueprint", description="Blueprint title")
+    grade: Optional[str] = Field(default=None, description="Target grade or class, e.g. 'Class 3'")
     sections: list[SectionBlueprint] = Field(..., min_length=1, description="Sections defining the paper structure")
     total_questions: int = Field(..., gt=0, le=100, description="Total question count across all sections")
     total_marks: int = Field(..., gt=0, le=1000, description="Total paper marks across all sections")
@@ -712,6 +734,7 @@ class PaperGenerateRequest(BaseModel):
     num_versions: int = Field(default=1, ge=1, le=10, description="Number of paper versions to generate (1-10)")
     sections: Optional[list[SectionBlueprint]] = Field(default=None, description="Optional custom section blueprints")
     blueprint: Optional[ExamBlueprint] = Field(default=None, description="Optional complete exam blueprint")
+    include_figure_questions: bool = Field(default=True, description="Whether to include syllabus-aligned figure-based questions where appropriate")
 
     @field_validator("question_types")
     @classmethod

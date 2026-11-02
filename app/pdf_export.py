@@ -23,6 +23,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import (
     HRFlowable,
+    Image,
     KeepTogether,
     PageBreak,
     Paragraph,
@@ -52,6 +53,38 @@ def _escape(text: str | None) -> str:
     if not text:
         return ""
     return html.escape(str(text))
+
+
+def _render_svg_flowable(svg_content: str, max_width_cm: float = 13.0, max_height_cm: float = 4.5):
+    """
+    Render SVG XML string into a crisp ReportLab Image Flowable via PyMuPDF.
+    Scales the diagram proportionally within max bounds, crisp and black-and-white printable.
+    """
+    if not svg_content or "<svg" not in svg_content:
+        return None
+    try:
+        import fitz
+        doc = fitz.open(stream=svg_content.encode("utf-8"), filetype="svg")
+        pix = doc[0].get_pixmap(dpi=150)
+        img_bytes = pix.tobytes("png")
+        orig_w = pix.width
+        orig_h = pix.height
+        if orig_w <= 0 or orig_h <= 0:
+            return None
+
+        # Calculate scaled dimensions in cm
+        max_w_pt = max_width_cm * cm
+        max_h_pt = max_height_cm * cm
+        scale = min(max_w_pt / orig_w, max_h_pt / orig_h, 1.0)
+        final_w = orig_w * scale
+        final_h = orig_h * scale
+
+        bio = BytesIO(img_bytes)
+        img = Image(bio, width=final_w, height=final_h)
+        img.hAlign = "CENTER"
+        return img
+    except Exception:
+        return None
 
 
 def _make_ruled_lines(num_lines: int, width_cm: float = 18.0, height_cm: float = 0.58) -> Table:
@@ -453,6 +486,13 @@ def generate_pdf(paper: Paper, include_answers: bool = True) -> bytes:
             q_line = f"<b>{global_q_num}.</b> {safe_text} &nbsp;&nbsp; {marks_badge}"
             q_flowables.append(Paragraph(q_line, styles["QuestionNumAndText"]))
             q_flowables.append(Spacer(1, 4))
+
+            # Figure diagram if question has figure-based content
+            if getattr(q, "figure", None) and getattr(q.figure, "svg_content", None):
+                fig_flowable = _render_svg_flowable(q.figure.svg_content)
+                if fig_flowable:
+                    q_flowables.append(fig_flowable)
+                    q_flowables.append(Spacer(1, 6))
 
             # Multiple Choice Question Options
             if q.question_type == QuestionType.MULTIPLE_CHOICE and q.options:

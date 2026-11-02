@@ -658,9 +658,72 @@ def _solve_slot_chapter_assignment(
     return section_allocations
 
 
+def _assign_figure_slots_to_sections(
+    blueprint: ExamBlueprint,
+    include_figure_questions: bool = True,
+) -> None:
+    """
+    Designate 1-2 slots across blueprint sections for figure-based questions
+    if include_figure_questions is True and eligible chapters are present.
+    Strictly preserves total question count, marks per question, and section marks.
+    """
+    for sec in blueprint.sections:
+        sec.figure_allocation = [False] * sec.num_questions
+
+    if not include_figure_questions:
+        return
+
+    from app.figures import is_figure_eligible_chapter
+
+    grade_val = getattr(blueprint, "grade", None)
+    g_num = parse_grade_number(str(grade_val)) if grade_val else 3
+
+    # Maximum figure questions: 1 for <= 4 questions, 2 for >= 5 questions
+    max_fig_questions = 2 if blueprint.total_questions >= 5 else 1
+
+    # Gather candidate slots: (sec_idx, slot_idx, chapter, marks, question_type)
+    candidates = []
+    for s_idx, sec in enumerate(blueprint.sections):
+        marks_dist = sec.get_marks_distribution()
+        alloc = sec.chapter_allocation or []
+        for slot_idx in range(sec.num_questions):
+            ch = alloc[slot_idx] if slot_idx < len(alloc) else ""
+            if is_figure_eligible_chapter(ch, g_num):
+                m = marks_dist[slot_idx] if slot_idx < len(marks_dist) else 1
+                candidates.append((s_idx, slot_idx, ch, m, sec.question_type))
+
+    if not candidates:
+        return
+
+    # Prioritize:
+    # 1. Multiple choice first, then Short Answer, then Long Answer
+    # 2. Moderate marks (1-2 marks first)
+    def priority_key(item):
+        s_idx, slot_idx, ch, m, qtype = item
+        type_rank = 0 if qtype == QuestionType.MULTIPLE_CHOICE else (1 if qtype == QuestionType.SHORT_ANSWER else 2)
+        mark_rank = 0 if 1 <= m <= 2 else (1 if m == 3 else 2)
+        return (type_rank, mark_rank)
+
+    sorted_candidates = sorted(candidates, key=priority_key)
+
+    chosen = []
+    used_chapters = set()
+    for cand in sorted_candidates:
+        s_idx, slot_idx, ch, m, qtype = cand
+        if len(chosen) >= max_fig_questions:
+            break
+        if ch not in used_chapters or len(used_chapters) == len({c[2] for c in candidates}):
+            chosen.append((s_idx, slot_idx))
+            used_chapters.add(ch)
+
+    for s_idx, slot_idx in chosen:
+        blueprint.sections[s_idx].figure_allocation[slot_idx] = True
+
+
 def assign_blueprint_chapter_coverage(
     blueprint: ExamBlueprint,
     permitted_chapters: list[str],
+    include_figure_questions: bool = True,
 ) -> tuple[ExamBlueprint, str]:
     """
     Distribute questions and marks across the eligible chapters before generation.
@@ -747,6 +810,7 @@ def assign_blueprint_chapter_coverage(
             f"is smaller than available chapters ({m}). Chapter allocation: {', '.join(parts)}."
         )
 
+    _assign_figure_slots_to_sections(blueprint, include_figure_questions=include_figure_questions)
     blueprint.coverage_explanation = explanation
     return blueprint, explanation
 

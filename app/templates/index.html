@@ -1687,6 +1687,14 @@
                 </div>
               </div>
 
+              <!-- Figure-Based Questions Option -->
+              <div class="form-group" style="margin-top: -6px; margin-bottom: 14px;">
+                <label class="checkbox-item checkbox-label" style="background: var(--bg-subtle); padding: 7px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-light); display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                  <input type="checkbox" id="figures-checkbox" name="include_figure_questions" checked>
+                  <span style="font-weight: 500; font-size: 0.82rem; color: var(--text-primary);">📐 Include Figure-Based Questions</span>
+                </label>
+              </div>
+
               <!-- Question Count and Marks -->
               <div class="form-row-2">
                 <div class="form-group">
@@ -2068,6 +2076,7 @@
         num_questions: parseInt(document.getElementById('count-input').value, 10),
         total_marks: parseInt(document.getElementById('marks-input').value, 10),
         subject: 'Mathematics',
+        include_figure_questions: document.getElementById('figures-checkbox') ? document.getElementById('figures-checkbox').checked : true,
       };
 
       const btn = document.getElementById('btn-submit');
@@ -2268,6 +2277,16 @@
         `;
       }
 
+      // Figure diagram for visual math questions (visible in both Student and Teacher copies)
+      let figureHtml = '';
+      if (q.figure && q.figure.svg_content) {
+        figureHtml = `
+          <div class="question-figure-container" style="margin: 12px 0; text-align: center; overflow-x: auto;">
+            ${q.figure.svg_content}
+          </div>
+        `;
+      }
+
       block.innerHTML = `
         <div class="q-head-line">
           <div class="q-number-bold">
@@ -2278,6 +2297,7 @@
           <span class="q-marks-tag">[${q.marks} Mark${q.marks > 1 ? 's' : ''}]</span>
         </div>
         <div class="q-body-text">${escapeHtml(q.question_text)}</div>
+        ${figureHtml}
         ${optionsHtml}
         ${studentArea}
         ${teacherArea}

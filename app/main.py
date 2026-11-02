@@ -834,7 +834,11 @@ def generate_paper(request: PaperGenerateRequest, current_user: User = Depends(r
 
     # Pre-generate the structured examination blueprint and assign chapter coverage
     blueprint = request.get_or_create_blueprint()
-    assign_blueprint_chapter_coverage(blueprint, request.permitted_units or [])
+    assign_blueprint_chapter_coverage(
+        blueprint,
+        request.permitted_units or [],
+        include_figure_questions=getattr(request, "include_figure_questions", True),
+    )
 
     # Generate questions with Gemini
     try:
@@ -899,7 +903,11 @@ def generate_batch_papers(request: BatchPaperGenerateRequest, current_user: User
     batch_id = uuid.uuid4().hex[:10]
 
     target_doc, passages, forbidden_units = resolve_curriculum_and_passages(request)
-    assign_blueprint_chapter_coverage(blueprint, request.permitted_units or [])
+    assign_blueprint_chapter_coverage(
+        blueprint,
+        request.permitted_units or [],
+        include_figure_questions=getattr(request, "include_figure_questions", True),
+    )
 
     # Generate candidate question pool
     try:
