@@ -306,6 +306,14 @@ def calculate_template_similarity(text1: str, text2: str) -> float:
     return _token_jaccard(toks1, toks2)
 
 
+MATH_CARRIER_TERMS = {
+    "perimeter", "area", "length", "lengths", "width", "height", "side", "sides",
+    "triangle", "rectangle", "square", "circle", "radius", "diameter",
+    "number", "numbers", "digit", "digits", "expanded", "standard", "form",
+    "value", "place", "add", "subtract", "multiply", "divide", "arranged", "according",
+}
+
+
 def check_shared_phrase(text1: str, text2: str, min_words: int = 4) -> tuple[bool, Optional[str]]:
     """Check if two questions share an identical contiguous sequence of content words."""
     norm1 = normalize_question_text(text1)
@@ -318,7 +326,11 @@ def check_shared_phrase(text1: str, text2: str, min_words: int = 4) -> tuple[boo
 
     words2_joined = " " + " ".join(words2) + " "
     for i in range(len(words1) - min_words + 1):
-        gram = " ".join(words1[i : i + min_words])
+        gram_words = words1[i : i + min_words]
+        # Ignore phrases consisting solely of standard math carrier vocabulary
+        if all(w in MATH_CARRIER_TERMS or _simple_stem(w) in MATH_CARRIER_TERMS for w in gram_words):
+            continue
+        gram = " ".join(gram_words)
         if f" {gram} " in words2_joined:
             return True, gram
 
@@ -404,7 +416,7 @@ def is_duplicate(
         if has_phrase:
             return True, f"Shared phrase detected ('{phrase}'): questions recycle substantially the same scenario/illustration as: '{ex_text[:60]}...'"
 
-        # 5. Same chapter concept collision check across sections
+        # 5. Same chapter concept collision check
         if (
             isinstance(question, Question)
             and isinstance(ex, Question)
@@ -418,7 +430,8 @@ def is_duplicate(
                 c2 = get_content_tokens(ex_text)
                 if c1 and c2:
                     c_sim = _token_jaccard(c1, c2)
-                    if c_sim >= 0.35:
+                    thresh = 0.50 if question.question_type == ex.question_type else 0.35
+                    if c_sim >= thresh:
                         return True, f"Both questions test substantially the same concept from '{question.chapter}' (overlap {c_sim:.2f}): '{ex_text[:60]}...'"
 
         # 6. If both are MCQs, check if options and answers match

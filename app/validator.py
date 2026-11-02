@@ -270,9 +270,18 @@ def check_grade_age_appropriateness(q: Question) -> tuple[bool, Optional[str]]:
         if q.question_type == QuestionType.SHORT_ANSWER and len(words) > 65:
             return False, f"Class 5 Short Answer is too wordy ({len(words)} words; max 65)."
 
-    # Maximum prompt length across all classes
-    if len(words) > 85:
-        return False, f"Question is excessively verbose ({len(words)} words; max 85). Avoid unnecessary story details."
+    # Maximum prompt length: strictly concise for early primary, up to 135 for upper-grade multi-part long answers
+    if grade_num == 1:
+        max_words = 65
+    elif grade_num == 2:
+        max_words = 75
+    elif q.question_type == QuestionType.LONG_ANSWER:
+        max_words = 135
+    else:
+        max_words = 85
+
+    if len(words) > max_words:
+        return False, f"Question is excessively verbose ({len(words)} words; max {max_words}). Avoid unnecessary story details."
 
     return True, None
 

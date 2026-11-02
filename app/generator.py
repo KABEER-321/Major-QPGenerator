@@ -688,7 +688,7 @@ Return ONLY a JSON array of {needed} question objects."""
 
     sec_questions: list[Question] = []
     rejection_reasons: list[str] = []
-    max_attempts = max(3, settings.MAX_RETRIES + 2)
+    max_attempts = max(4, settings.MAX_RETRIES + (3 if needed >= 8 else 2))
 
     for attempt in range(1, max_attempts + 1):
         try:
@@ -819,7 +819,7 @@ Return ONLY a JSON array of {needed} question objects."""
                     for q in (existing_questions + list(slot_map.values()))
                 ]
                 accepted_summary = "\n".join(accepted_lines)
-                candidate_target = deficit + 2
+                candidate_target = max(deficit + 3, int(deficit * 1.5))
 
                 retry_prompt = f"""We have accepted {len(slot_map)} out of {needed} questions for Section '{sec.section_id}' ({sec.title}).
 We now need EXACTLY {deficit} more valid, unique questions of type '{sec.question_type.value}' to fill the remaining slots.
