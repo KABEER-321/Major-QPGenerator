@@ -560,6 +560,7 @@ CRITICAL SYLLABUS ENFORCEMENT RULES:
     marks_dist = sec.get_marks_distribution()
     needed = sec.num_questions
     sec_difficulty = sec.difficulty or request.difficulty or Difficulty.MEDIUM
+    alloc = getattr(sec, "chapter_allocation", None) or []
 
     fig_alloc = getattr(sec, "figure_allocation", None) or [False] * needed
     slot_map: dict[int, Question] = {}

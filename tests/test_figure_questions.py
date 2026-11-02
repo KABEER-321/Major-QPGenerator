@@ -386,3 +386,49 @@ def test_auth_and_rbac_protection_on_paper_generation():
     with pytest.raises(HTTPException) as exc_info:
         get_current_user(req)
     assert exc_info.value.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# 11. Section generation with figure slots accesses alloc safely
+# ---------------------------------------------------------------------------
+
+def test_generate_section_questions_with_figure_slot_does_not_unbound_alloc():
+    """Verify that _generate_section_questions does not throw UnboundLocalError on alloc."""
+    from app.generator import _generate_section_questions
+    from app.schemas import ExamType
+    from langchain_core.documents import Document
+
+    sec = SectionBlueprint(
+        section_id="A",
+        title="Section A: Multiple Choice",
+        question_type=QuestionType.MULTIPLE_CHOICE,
+        num_questions=1,
+        section_marks=1,
+        marks_per_question=1,
+        chapter_allocation=["Shapes and Designs"],
+        figure_allocation=[True],
+    )
+    request = PaperGenerateRequest(
+        grade="Class 3",
+        subject="Mathematics",
+        exam_type=ExamType.FINAL,
+        num_questions=1,
+        total_marks=1,
+        include_figure_questions=True,
+    )
+    passages = [
+        Document(page_content="Shapes and designs content", metadata={"source": "math-magic-3.pdf", "chapter": "Shapes and Designs"})
+    ]
+
+    questions = _generate_section_questions(
+        sec=sec,
+        request=request,
+        passages=passages,
+        existing_questions=[],
+        source_refs=[],
+        llm=None,
+    )
+    assert len(questions) == 1
+    assert questions[0].question_subtype == "figure_based"
+    assert questions[0].figure is not None
+
