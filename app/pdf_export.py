@@ -290,6 +290,9 @@ def generate_pdf(paper: Paper, include_answers: bool = True) -> bytes:
         f"QPGen Curriculum-Aligned Assessment — Model Question Paper ({exam_type.display_name})",
         styles["AssessmentSubHeader"],
     ))
+    set_label = getattr(paper, "set_label", None)
+    if set_label:
+        story.append(Paragraph(f"<b>SET {_escape(set_label)}</b>", styles["AssessmentSubHeader"]))
 
     # Paper Metadata Table (Class, Subject, Marks, Time, Medium)
     meta_row_1 = [
@@ -317,6 +320,17 @@ def generate_pdf(paper: Paper, include_answers: bool = True) -> bytes:
         meta_table_data.append([
             Paragraph(
                 f"<b>Syllabus Scope:</b> {_escape(scope or 'First Half of Syllabus')}",
+                styles["MetaCell"],
+            ),
+            Paragraph("", styles["MetaCell"]),
+            Paragraph("", styles["MetaCell"]),
+        ])
+
+    custom_name = getattr(paper, "custom_syllabus_name", None)
+    if custom_name:
+        meta_table_data.append([
+            Paragraph(
+                f"<b>Syllabus:</b> Custom — {_escape(custom_name)}",
                 styles["MetaCell"],
             ),
             Paragraph("", styles["MetaCell"]),

@@ -80,6 +80,13 @@ class Settings(BaseSettings):
         return d
 
     @property
+    def custom_syllabi_dir(self) -> Path:
+        """Directory for saved teacher-defined (custom) syllabi JSON records."""
+        d = self.DATA_DIR / "custom_syllabi"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    @property
     def papers_dir(self) -> Path:
         """Directory for saved paper JSON files and PDFs."""
         d = self.DATA_DIR / "papers"

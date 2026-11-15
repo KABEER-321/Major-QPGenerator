@@ -151,6 +151,13 @@ or **http://127.0.0.1:8000/docs** for FastAPI's interactive Swagger UI documenta
 | `GET` | `/papers/{paper_id}` | Retrieve a saved paper's full JSON |
 | `GET` | `/papers/{paper_id}/pdf` | Download a paper as a PDF (teacher or student version) |
 | `DELETE` | `/papers/{paper_id}` | Delete a saved question paper |
+| `POST` | `/papers/generate-batch` | Generate several unique sets (Set A, B, C…) with no repeated questions |
+| `GET` | `/papers/batch/{batch_id}/pdfs` | Download every set of a batch as a ZIP of separate PDFs |
+| `POST` | `/syllabi/custom` | Create a custom syllabus from a PDF/DOCX upload or manual text (extracts chapters & topics, indexes in FAISS, saves it) |
+| `GET` | `/syllabi/custom` | List the teacher's saved custom syllabi |
+| `GET` | `/syllabi/custom/{id}` | Retrieve one saved custom syllabus (chapters & topics) |
+| `PUT` | `/syllabi/custom/{id}` | Rename / edit chapters & topics of a saved syllabus (re-indexes) |
+| `DELETE` | `/syllabi/custom/{id}` | Delete a saved custom syllabus and its index |
 
 ## How to Use
 
@@ -217,6 +224,36 @@ GET /papers/{paper_id}/pdf?include_answers=false   # student version (no answers
 The PDF includes paper metadata, numbered questions with marks, MCQ options,
 page numbers, and a separate answer key with solutions section.
 
+## Custom Syllabus
+
+In the Teacher Portal choose **Syllabus Source → Custom Syllabus**:
+
+1. **Upload a PDF/DOCX** or **enter the syllabus manually** (headings such as
+   `Unit 1: Algebra` / `Chapter 2 - Fractions` / `1. Geometry`, with topics as bullet or plain lines).
+2. Click **Extract Chapters & Topics**. The syllabus is parsed, split per chapter, embedded into
+   its own FAISS index (`data/indexes/custom_<id>/`) and saved (`data/custom_syllabi/<id>.json`).
+3. Tick the chapters (and optionally individual topics) to include.
+4. Generate. Retrieval is restricted by exact chapter metadata to the selected chapters and the
+   prompt states that questions must come only from the selected chapters/topics; the saved paper
+   records the custom syllabus used.
+5. Saved syllabi appear in the **Saved Custom Syllabi** dropdown for reuse (per teacher). Custom
+   syllabi are always generated as a Final-style paper over the chosen scope and can target Classes 1–10.
+
+API: pass `custom_syllabus_id`, `selected_chapters` and optionally `selected_topics`
+(`{"Chapter title": ["topic", ...]}`) to `/papers/generate` or `/papers/generate-batch`.
+
+## Unique Question Paper Sets
+
+Pick **Question Paper Sets** (2–6) in the form. The batch pipeline generates a candidate pool, removes
+duplicates/near-duplicates, and deals disjoint questions into **Set A, B, C…** using the same blueprint,
+so every set has identical marks distribution, difficulty, chapter coverage and question pattern.
+Each set has its own Teacher/Student PDF (header shows "SET A"), plus ZIP downloads for all sets.
+
+If the syllabus cannot supply enough unique questions, nothing is duplicated: the API answers
+HTTP 422 (`CandidatePoolShortageError`, with needed/available counts) — or, with `allow_fewer_sets=true`
+(what the UI sends), returns the fully unique sets it could build and a `warnings` message that the
+UI shows to the teacher.
+
 ## Where Data Is Stored
 
 All data is stored locally as files — no database is used.
@@ -226,6 +263,7 @@ All data is stored locally as files — no database is used.
 | Uploaded documents | `data/uploads/` | Original PDF/DOCX + metadata JSON |
 | FAISS vector indexes | `data/indexes/` | Binary FAISS index files |
 | Saved papers | `data/papers/` | JSON files |
+| Custom syllabi | `data/custom_syllabi/` | JSON files (index in `data/indexes/custom_<id>/`) |
 
 These directories are created automatically on first use and are listed
 in `.gitignore` to keep generated data out of version control.
@@ -246,7 +284,7 @@ uv run pytest tests/test_schemas.py -v
 uv run pytest -q
 ```
 
-Current test count: **140 tests**, covering:
+Test count: **300+ tests**, covering:
 - Blueprint validation: Section blueprints, exam blueprints, marks distribution, total marks & question count sums
 - Multi-version generation: Candidate pool selection without replacement, cross-version uniqueness, shortage errors
 - Duplicate & near-duplicate detection: Normalized text, token Jaccard, character 3-grams, MCQ option matching
@@ -256,6 +294,8 @@ Current test count: **140 tests**, covering:
 - SymPy automated mathematical verification and candidate discrepancy rejection
 - PDF export: formatted teacher & student views with section headers and version metadata
 - All FastAPI endpoints (single generation, batch multi-version generation, documents, papers, PDF download, deletions)
+- Custom syllabus: parsing, PDF/DOCX/text upload, save/reuse, per-teacher isolation, strict chapter-scoped retrieval and generation (`tests/test_custom_syllabus*.py`)
+- Unique sets: Set A/B/C labelling, cross-set uniqueness, identical pattern, per-set PDFs/ZIP, shortage reporting (`tests/test_unique_sets.py`)
 - Edge cases: candidate shortage, invalid blueprints, malformed JSON, path traversal, oversized files
 
 ## Configuration
