@@ -739,6 +739,22 @@ class PaperGenerateRequest(BaseModel):
     sections: Optional[list[SectionBlueprint]] = Field(default=None, description="Optional custom section blueprints")
     blueprint: Optional[ExamBlueprint] = Field(default=None, description="Optional complete exam blueprint")
     include_figure_questions: bool = Field(default=True, description="Whether to include syllabus-aligned figure-based questions where appropriate")
+    custom_syllabus_id: Optional[str] = Field(
+        default=None,
+        description="ID of a saved custom syllabus; when set, generation is restricted to the selected chapters/topics",
+    )
+    selected_chapters: Optional[list[str]] = Field(
+        default=None,
+        description="Chapter titles chosen from the custom syllabus",
+    )
+    selected_topics: Optional[dict[str, list[str]]] = Field(
+        default=None,
+        description="Optional mapping chapter title -> topics chosen within that chapter (omitted = all topics)",
+    )
+    custom_syllabus_name: Optional[str] = Field(
+        default=None,
+        description="Set by the server from the saved custom syllabus; ignored if supplied by the client",
+    )
 
     @field_validator("question_types")
     @classmethod
@@ -837,6 +853,30 @@ class BatchPaperGenerateRequest(BaseModel):
         description="Which question types to include if blueprint is omitted",
     )
     num_questions: Optional[int] = Field(default=None, gt=0, le=50, description="Total questions per paper")
+    include_figure_questions: bool = Field(default=True, description="Whether to include syllabus-aligned figure-based questions where appropriate")
+    allow_fewer_sets: bool = Field(
+        default=False,
+        description=(
+            "If true and there are not enough unique questions for every requested set, return the "
+            "fully-unique sets that can be built plus a warning, instead of failing with HTTP 422"
+        ),
+    )
+    custom_syllabus_id: Optional[str] = Field(
+        default=None,
+        description="ID of a saved custom syllabus; when set, generation is restricted to the selected chapters/topics",
+    )
+    selected_chapters: Optional[list[str]] = Field(
+        default=None,
+        description="Chapter titles chosen from the custom syllabus",
+    )
+    selected_topics: Optional[dict[str, list[str]]] = Field(
+        default=None,
+        description="Optional mapping chapter title -> topics chosen within that chapter (omitted = all topics)",
+    )
+    custom_syllabus_name: Optional[str] = Field(
+        default=None,
+        description="Set by the server from the saved custom syllabus; ignored if supplied by the client",
+    )
     total_marks: Optional[int] = Field(default=None, gt=0, le=500, description="Total marks per paper")
 
     @model_validator(mode="after")
@@ -964,6 +1004,9 @@ class Paper(BaseModel):
     version_number: int = Field(default=1, ge=1, le=10, description="Version number within batch (1-10)")
     num_versions: int = Field(default=1, ge=1, le=10, description="Total versions in batch")
     blueprint_id: Optional[str] = Field(default=None, description="Blueprint identifier")
+    set_label: Optional[str] = Field(default=None, description="Set label within a batch, e.g. 'A', 'B', 'C'")
+    custom_syllabus_id: Optional[str] = Field(default=None, description="Custom syllabus this paper was generated from")
+    custom_syllabus_name: Optional[str] = Field(default=None, description="Name of the custom syllabus used")
 
     @model_validator(mode="after")
     def check_counts_and_marks(self) -> "Paper":
@@ -1040,6 +1083,11 @@ class BatchPaperResponse(BaseModel):
     papers: list[Paper] = Field(..., description="The generated paper objects")
     paper_ids: list[str] = Field(..., description="List of paper IDs for retrieval and PDF export")
     validation_summary: BatchValidationSummary = Field(..., description="Validation and uniqueness summary")
+    set_labels: list[str] = Field(default_factory=list, description="Labels of generated sets, e.g. ['A', 'B']")
+    warnings: list[str] = Field(
+        default_factory=list,
+        description="Teacher-facing notices, e.g. when fewer unique sets could be built than requested",
+    )
     created_at: str = Field(
         default_factory=lambda: datetime.now().isoformat(),
         description="ISO-format creation timestamp",
@@ -1167,3 +1215,72 @@ class PaperSummary(BaseModel):
     version_number: int = 1
     num_versions: int = 1
     batch_id: Optional[str] = None
+    set_label: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Custom syllabus models
+# ---------------------------------------------------------------------------
+
+SET_LABELS = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]
+
+
+class CustomSyllabusChapter(BaseModel):
+    """One chapter/unit of a teacher-defined syllabus with its topics."""
+    title: str = Field(..., min_length=1, max_length=200)
+    topics: list[str] = Field(default_factory=list)
+    content: str = Field(default="", description="Source text belonging to this chapter (used for retrieval)")
+
+
+class CustomSyllabusChapterOut(BaseModel):
+    """Chapter as returned to the UI (without bulky source text)."""
+    title: str
+    topics: list[str] = Field(default_factory=list)
+
+
+class CustomSyllabus(BaseModel):
+    """Saved, reusable custom syllabus (persisted as JSON, indexed in FAISS)."""
+    syllabus_id: str
+    owner_id: str = ""
+    name: str = Field(..., min_length=1, max_length=200)
+    grade: Optional[str] = None
+    subject: str = "Mathematics"
+    source_type: str = Field(default="text", description="'pdf', 'docx' or 'text'")
+    source_filename: Optional[str] = None
+    chapters: list[CustomSyllabusChapter] = Field(default_factory=list)
+    num_chunks: int = 0
+    has_index: bool = False
+    created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now().isoformat())
+
+
+class CustomSyllabusOut(BaseModel):
+    syllabus_id: str
+    name: str
+    grade: Optional[str] = None
+    subject: str = "Mathematics"
+    source_type: str = "text"
+    source_filename: Optional[str] = None
+    chapters: list[CustomSyllabusChapterOut] = Field(default_factory=list)
+    num_chunks: int = 0
+    has_index: bool = False
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class CustomSyllabusSummary(BaseModel):
+    syllabus_id: str
+    name: str
+    grade: Optional[str] = None
+    subject: str = "Mathematics"
+    source_type: str = "text"
+    num_chapters: int = 0
+    num_topics: int = 0
+    created_at: str = ""
+
+
+class CustomSyllabusUpdateRequest(BaseModel):
+    """Edit name/grade or the extracted chapter/topic structure of a saved syllabus."""
+    name: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    grade: Optional[str] = None
+    chapters: Optional[list[CustomSyllabusChapterOut]] = None

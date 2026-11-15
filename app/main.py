@@ -2,8 +2,10 @@
 # FastAPI application entry point with all API routes.
 # Protected with enterprise authentication, session tokens, and admin user controls.
 
+import io
 import logging
 import uuid
+import zipfile
 from typing import Optional
 from pathlib import Path
 
@@ -56,6 +58,20 @@ from app.schemas import (
     extract_syllabus_units,
     determine_midterm_scope,
     determine_second_half_scope,
+    CustomSyllabusOut,
+    CustomSyllabusSummary,
+    CustomSyllabusUpdateRequest,
+    SET_LABELS,
+)
+from app.custom_syllabus import (
+    SelectionError,
+    build_scope_text,
+    create_custom_syllabus,
+    delete_custom_syllabus,
+    list_custom_syllabi,
+    load_custom_syllabus,
+    resolve_selection,
+    update_custom_syllabus,
 )
 from app.documents import (
     validate_file_extension,
@@ -580,17 +596,237 @@ def delete_document(document_id: str, current_user: User = Depends(require_teach
 
 
 # ---------------------------------------------------------------------------
+# Custom Syllabus — upload / manual entry, extraction, save & reuse
+# ---------------------------------------------------------------------------
+
+def _syllabus_out(syl) -> CustomSyllabusOut:
+    return CustomSyllabusOut(
+        syllabus_id=syl.syllabus_id,
+        name=syl.name,
+        grade=syl.grade,
+        subject=syl.subject,
+        source_type=syl.source_type,
+        source_filename=syl.source_filename,
+        chapters=[{"title": c.title, "topics": c.topics} for c in syl.chapters],
+        num_chunks=syl.num_chunks,
+        has_index=syl.has_index,
+        created_at=syl.created_at,
+        updated_at=syl.updated_at,
+    )
+
+
+@app.post("/syllabi/custom", response_model=CustomSyllabusOut, tags=["Custom Syllabus"])
+async def create_custom_syllabus_endpoint(
+    name: str = Form(...),
+    file: Optional[UploadFile] = File(None),
+    text: Optional[str] = Form(None),
+    grade: Optional[str] = Form(None),
+    subject: Optional[str] = Form("Mathematics"),
+    current_user: User = Depends(require_teacher),
+):
+    """
+    Create a reusable custom syllabus from an uploaded PDF/DOCX or manually typed text.
+    Chapters and topics are extracted, the content is indexed in FAISS, and the
+    syllabus is saved so it can be reused for later papers.
+    """
+    if not name.strip():
+        raise HTTPException(status_code=400, detail="Please provide a name for the custom syllabus.")
+    has_file = file is not None and bool(file.filename)
+    has_text = bool(text and text.strip())
+    if not has_file and not has_text:
+        raise HTTPException(status_code=400, detail="Upload a PDF/DOCX file or enter the syllabus content manually.")
+
+    syllabus_id = f"custom_{uuid.uuid4().hex[:12]}"
+    source_type, source_filename, saved_path = "text", None, None
+
+    if has_file:
+        try:
+            extension = validate_file_extension(file.filename or "unknown")
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        contents = await file.read()
+        if len(contents) > settings.MAX_UPLOAD_SIZE_BYTES:
+            max_mb = settings.MAX_UPLOAD_SIZE_BYTES / (1024 * 1024)
+            raise HTTPException(status_code=413, detail=f"File too large. Maximum size is {max_mb:.0f} MB.")
+        saved_path = settings.uploads_dir / f"{syllabus_id}{extension}"
+        saved_path.write_bytes(contents)
+        try:
+            body_text = extract_text(saved_path, extension)
+        except ValueError as e:
+            saved_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=422, detail=str(e))
+        except Exception as e:
+            saved_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=422, detail=f"Could not read the uploaded file: {e}")
+        source_type, source_filename = extension.lstrip("."), file.filename
+    else:
+        body_text = text.strip()
+
+    try:
+        syl = create_custom_syllabus(
+            name=name,
+            text=body_text,
+            owner_id=current_user.id,
+            grade=grade,
+            subject=subject or "Mathematics",
+            source_type=source_type,
+            source_filename=source_filename,
+            syllabus_id=syllabus_id,
+        )
+    except ValueError as e:
+        if saved_path:
+            saved_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        if saved_path:
+            saved_path.unlink(missing_ok=True)
+        logger.error("Custom syllabus indexing failed: %s", e)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to create embeddings. Check your GOOGLE_API_KEY. Error: {e}",
+        )
+    return _syllabus_out(syl)
+
+
+@app.get("/syllabi/custom", response_model=list[CustomSyllabusSummary], tags=["Custom Syllabus"])
+def list_custom_syllabi_endpoint(current_user: User = Depends(require_teacher)):
+    """List the current teacher's saved custom syllabi."""
+    return [
+        CustomSyllabusSummary(
+            syllabus_id=s.syllabus_id,
+            name=s.name,
+            grade=s.grade,
+            subject=s.subject,
+            source_type=s.source_type,
+            num_chapters=len(s.chapters),
+            num_topics=sum(len(c.topics) for c in s.chapters),
+            created_at=s.created_at,
+        )
+        for s in list_custom_syllabi(current_user.id)
+    ]
+
+
+@app.get("/syllabi/custom/{syllabus_id}", response_model=CustomSyllabusOut, tags=["Custom Syllabus"])
+def get_custom_syllabus_endpoint(syllabus_id: str, current_user: User = Depends(require_teacher)):
+    """Retrieve a saved custom syllabus with its chapters and topics."""
+    try:
+        return _syllabus_out(load_custom_syllabus(syllabus_id, current_user.id))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.put("/syllabi/custom/{syllabus_id}", response_model=CustomSyllabusOut, tags=["Custom Syllabus"])
+def update_custom_syllabus_endpoint(
+    syllabus_id: str,
+    req: CustomSyllabusUpdateRequest,
+    current_user: User = Depends(require_teacher),
+):
+    """Rename a saved syllabus or edit its extracted chapters/topics (re-indexes on change)."""
+    try:
+        syl = load_custom_syllabus(syllabus_id, current_user.id)
+        return _syllabus_out(update_custom_syllabus(syl, req.name, req.grade, req.chapters))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to update the syllabus index: {e}")
+
+
+@app.delete("/syllabi/custom/{syllabus_id}", tags=["Custom Syllabus"])
+def delete_custom_syllabus_endpoint(syllabus_id: str, current_user: User = Depends(require_teacher)):
+    """Delete a saved custom syllabus together with its FAISS index."""
+    if not delete_custom_syllabus(syllabus_id, current_user.id):
+        raise HTTPException(status_code=404, detail=f"Custom syllabus '{syllabus_id}' not found.")
+    return {"message": f"Custom syllabus '{syllabus_id}' deleted successfully."}
+
+
+def resolve_custom_syllabus_and_passages(
+    request: PaperGenerateRequest | BatchPaperGenerateRequest,
+    current_user: User,
+) -> tuple[DocumentRecord, list[object], list[str]]:
+    """
+    Resolve a saved custom syllabus + the teacher's chapter/topic selection and retrieve
+    passages from ONLY the selected chapters (exact chapter-metadata match).
+    """
+    try:
+        syl = load_custom_syllabus(request.custom_syllabus_id, current_user.id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    try:
+        chapters, topics = resolve_selection(syl, request.selected_chapters, request.selected_topics)
+    except SelectionError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    grade_label = format_grade_display(request.academic_grade or request.grade)
+    request.exam_type = ExamType.FINAL
+    request.academic_grade = grade_label
+    request.curriculum_grade = grade_label
+    request.document_id = syl.syllabus_id
+    request.custom_syllabus_name = syl.name
+    request.permitted_units = chapters
+    request.forbidden_units = []
+    request.syllabus_scope = build_scope_text(syl.name, chapters, topics)
+    selected_topic_names = [t for ch in chapters for t in (topics.get(ch) or [])]
+    topic_text = ", ".join(selected_topic_names) if selected_topic_names else ", ".join(chapters)
+    request.topic = topic_text if len(topic_text) <= 250 else topic_text[:247] + "..."
+
+    query = f"{', '.join(chapters)}. {', '.join(selected_topic_names)}".strip()
+    try:
+        raw = retrieve_relevant_chunks(
+            document_id=syl.syllabus_id,
+            query=query,
+            permitted_units=chapters,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    allowed = set(chapters)
+    passages = [d for d in raw if (d.metadata or {}).get("chapter") in allowed]
+    if not passages:
+        raise HTTPException(
+            status_code=422,
+            detail="No content was found for the selected chapters in this custom syllabus.",
+        )
+
+    doc = DocumentRecord(
+        document_id=syl.syllabus_id,
+        original_filename=syl.source_filename or f"{syl.name}.txt",
+        safe_filename=syl.syllabus_id,
+        grade=syl.grade,
+        subject=syl.subject,
+        units=[c.title for c in syl.chapters],
+        num_chunks=syl.num_chunks,
+        has_index=syl.has_index,
+    )
+    return doc, passages, []
+
+
+# ---------------------------------------------------------------------------
 # Examination Scope & Curriculum Resolution Helper
 # ---------------------------------------------------------------------------
 
 def resolve_curriculum_and_passages(
     request: PaperGenerateRequest | BatchPaperGenerateRequest,
+    current_user: Optional[User] = None,
 ) -> tuple[DocumentRecord, list[object], list[str]]:
     """
     Resolve curriculum class, examination scope, target document, and retrieved passages
     based on the examination type (prerequisite, midterm, or final).
     Uses the 5 permanently stored textbooks (Classes 1-5) by default.
     """
+    if getattr(request, "custom_syllabus_id", None):
+        if current_user is None:
+            raise HTTPException(status_code=401, detail="Authentication required for custom syllabus.")
+        return resolve_custom_syllabus_and_passages(request, current_user)
+
     exam_type = request.exam_type or ExamType.FINAL
     academic_class = format_grade_display(request.academic_grade or request.grade)
     acad_num = parse_grade_number(academic_class)
@@ -830,7 +1066,7 @@ def generate_paper(request: PaperGenerateRequest, current_user: User = Depends(r
     Retrieves relevant passages based on the examination type, calls Gemini,
     validates the output, assembles the paper, and saves it as JSON.
     """
-    target_doc, passages, forbidden_units = resolve_curriculum_and_passages(request)
+    target_doc, passages, forbidden_units = resolve_curriculum_and_passages(request, current_user)
 
     # Pre-generate the structured examination blueprint and assign chapter coverage
     blueprint = request.get_or_create_blueprint()
@@ -902,7 +1138,7 @@ def generate_batch_papers(request: BatchPaperGenerateRequest, current_user: User
     blueprint = request.get_or_create_blueprint()
     batch_id = uuid.uuid4().hex[:10]
 
-    target_doc, passages, forbidden_units = resolve_curriculum_and_passages(request)
+    target_doc, passages, forbidden_units = resolve_curriculum_and_passages(request, current_user)
     assign_blueprint_chapter_coverage(
         blueprint,
         request.permitted_units or [],
@@ -931,30 +1167,58 @@ def generate_batch_papers(request: BatchPaperGenerateRequest, current_user: User
         logger.error("Candidate generation failed: %s", e)
         raise HTTPException(status_code=500, detail=f"Candidate generation failed: {e}")
 
-    # Select questions without replacement across versions
-    try:
-        versions_questions, versions_sections = select_version_questions(
-            candidate_pool=candidates,
-            blueprint=blueprint,
-            num_versions=request.num_versions,
-        )
-    except CandidatePoolShortageError as e:
+    # Select questions without replacement across sets. If the pool cannot support all
+    # requested sets without repeating questions, build as many fully-unique sets as
+    # possible and tell the teacher — never silently duplicate questions.
+    warnings: list[str] = []
+    requested_sets = request.num_versions
+    shortage: Optional[CandidatePoolShortageError] = None
+    versions_questions = versions_sections = None
+    sets_built = 0
+    lowest_k = 1 if request.allow_fewer_sets else requested_sets
+    for k in range(requested_sets, lowest_k - 1, -1):
+        try:
+            versions_questions, versions_sections = select_version_questions(
+                candidate_pool=candidates,
+                blueprint=blueprint,
+                num_versions=k,
+            )
+            sets_built = k
+            break
+        except CandidatePoolShortageError as e:
+            if shortage is None:
+                shortage = e
+    if sets_built == 0:
+        e = shortage
         raise HTTPException(
             status_code=422,
             detail={
                 "error": "CandidatePoolShortageError",
-                "message": str(e),
+                "message": (
+                    f"Not enough unique questions to build {requested_sets} sets without repeating "
+                    f"questions. {e} Reduce the number of sets or widen the syllabus."
+                    if not request.allow_fewer_sets
+                    else f"Not enough unique questions could be generated to build even one paper. {e}"
+                ),
                 "section_id": e.section_id,
                 "needed": e.needed,
                 "available": e.available,
             },
         )
+    if sets_built < requested_sets:
+        warnings.append(
+            f"Only {sets_built} of the {requested_sets} requested sets could be generated with fully unique "
+            f"questions ({shortage}). "
+            "No questions were duplicated across sets. Reduce the number of sets, widen the syllabus "
+            "selection, or generate again to get more unique questions."
+        )
+    set_labels = SET_LABELS[:sets_built]
 
-    # Assemble and persist each version
+    # Assemble and persist each set
     saved_papers: list[Paper] = []
     paper_ids: list[str] = []
 
-    for v_idx in range(request.num_versions):
+    for v_idx in range(sets_built):
         v_num = v_idx + 1
         v_qs = versions_questions[v_idx]
         v_secs = versions_sections[v_idx]
@@ -968,10 +1232,14 @@ def generate_batch_papers(request: BatchPaperGenerateRequest, current_user: User
             academic_grade=request.academic_grade,
             curriculum_grade=request.curriculum_grade,
             syllabus_scope=request.syllabus_scope,
+            permitted_units=request.permitted_units,
+            forbidden_units=request.forbidden_units,
             difficulty=request.difficulty,
             num_questions=blueprint.total_questions,
             total_marks=blueprint.total_marks,
-            num_versions=request.num_versions,
+            num_versions=sets_built,
+            custom_syllabus_id=request.custom_syllabus_id,
+            custom_syllabus_name=request.custom_syllabus_name,
         )
 
         paper = assemble_paper(
@@ -980,12 +1248,13 @@ def generate_batch_papers(request: BatchPaperGenerateRequest, current_user: User
             sections=v_secs,
             batch_id=batch_id,
             version_number=v_num,
-            num_versions=request.num_versions,
+            num_versions=sets_built,
             blueprint_id=blueprint.blueprint_id,
+            set_label=set_labels[v_idx],
         )
         is_valid, validation_errors = validate_full_paper(paper)
         if not is_valid:
-            logger.warning("Batch paper version %d has validation warnings: %s", v_num, validation_errors)
+            logger.warning("Batch paper set %s has validation warnings: %s", set_labels[v_idx], validation_errors)
         save_paper(paper)
         saved_papers.append(paper)
         paper_ids.append(paper.paper_id)
@@ -1007,7 +1276,7 @@ def generate_batch_papers(request: BatchPaperGenerateRequest, current_user: User
         is_unique=is_unique,
         all_versions_valid=all(p.num_questions == blueprint.total_questions for p in saved_papers),
         details=(
-            f"Generated {len(saved_papers)} unique versions ({blueprint.total_questions} questions, "
+            f"Generated {len(saved_papers)} unique sets ({blueprint.total_questions} questions, "
             f"{blueprint.total_marks} marks each) under blueprint '{blueprint.title}'."
         ),
     )
@@ -1020,6 +1289,8 @@ def generate_batch_papers(request: BatchPaperGenerateRequest, current_user: User
         papers=saved_papers,
         paper_ids=paper_ids,
         validation_summary=summary,
+        set_labels=set_labels,
+        warnings=warnings,
     )
 
 
@@ -1083,6 +1354,34 @@ def download_paper_pdf(paper_id: str, include_answers: bool = True, current_user
         content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /papers/batch/{batch_id}/pdfs — download every set of a batch as one ZIP of PDFs
+# ---------------------------------------------------------------------------
+
+@app.get("/papers/batch/{batch_id}/pdfs", tags=["Papers"])
+def download_batch_pdfs(batch_id: str, include_answers: bool = True, current_user: User = Depends(require_teacher)):
+    """Download a separate PDF for every set (Set A, B, C...) of a batch, bundled in a ZIP."""
+    summaries = [p for p in list_papers() if p.batch_id == batch_id]
+    if not summaries:
+        raise HTTPException(status_code=404, detail=f"No papers found for batch '{batch_id}'.")
+    summaries.sort(key=lambda p: p.version_number)
+    kind = "solutions" if include_answers else "student"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for summ in summaries:
+            try:
+                paper = load_paper(summ.paper_id)
+            except (FileNotFoundError, ValueError):
+                continue
+            label = paper.set_label or str(paper.version_number)
+            zf.writestr(f"Set_{label}_{kind}.pdf", generate_pdf(paper, include_answers=include_answers))
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="question_paper_sets_{kind}.zip"'},
     )
 
 

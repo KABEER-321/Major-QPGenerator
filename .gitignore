@@ -18,6 +18,7 @@ data/uploads/*
 data/indexes/*
 !data/indexes/curriculum_class_*
 data/papers/
+data/custom_syllabi/
 data/e2e_exports/
 
 # Testing

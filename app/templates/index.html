@@ -1632,6 +1632,61 @@
           <div class="panel-body">
             <form id="generate-form">
 
+              <!-- Syllabus Source: Predefined textbook or Custom syllabus -->
+              <div class="form-group">
+                <label class="field-label">Syllabus Source</label>
+                <div class="segmented-control" id="syllabus-mode-group">
+                  <button type="button" class="segmented-btn pill-btn active" data-mode="predefined" onclick="setSyllabusMode('predefined')">Predefined Syllabus</button>
+                  <button type="button" class="segmented-btn pill-btn" data-mode="custom" onclick="setSyllabusMode('custom')">Custom Syllabus</button>
+                </div>
+              </div>
+
+              <div id="custom-syllabus-panel" style="display: none; margin-bottom: 16px;">
+                <div class="form-group">
+                  <label for="custom-saved-select" class="field-label">Saved Custom Syllabi</label>
+                  <div style="display: flex; gap: 6px;">
+                    <select id="custom-saved-select" class="form-control" onchange="onSavedSyllabusChange()">
+                      <option value="">+ Create a new custom syllabus</option>
+                    </select>
+                    <button type="button" class="btn-pdf-action outline" id="custom-delete-btn" style="display: none; color: var(--danger-text);" onclick="deleteCustomSyllabus()" title="Delete this saved syllabus">✕</button>
+                  </div>
+                </div>
+
+                <div id="custom-new-box">
+                  <div class="form-group">
+                    <label for="custom-name-input" class="field-label">Syllabus Name</label>
+                    <input type="text" id="custom-name-input" class="form-control" maxlength="200" placeholder="e.g. Term 1 Mathematics Syllabus">
+                  </div>
+                  <div class="form-group">
+                    <div class="segmented-control" id="custom-input-mode-group">
+                      <button type="button" class="segmented-btn pill-btn active" data-imode="file" onclick="setCustomInputMode('file')">Upload PDF / DOCX</button>
+                      <button type="button" class="segmented-btn pill-btn" data-imode="text" onclick="setCustomInputMode('text')">Enter Manually</button>
+                    </div>
+                  </div>
+                  <div class="form-group" id="custom-file-wrap">
+                    <input type="file" id="custom-file-input" class="form-control" accept=".pdf,.docx">
+                  </div>
+                  <div class="form-group" id="custom-text-wrap" style="display: none;">
+                    <textarea id="custom-text-input" class="form-control" rows="7" placeholder="Unit 1: Number System&#10;- Natural numbers&#10;- Integers&#10;Unit 2: Algebra&#10;- Expressions&#10;- Linear equations"></textarea>
+                  </div>
+                  <button type="button" class="btn-pdf-action primary" id="custom-extract-btn" style="width: 100%; justify-content: center; margin-bottom: 12px;" onclick="extractCustomSyllabus()">
+                    <span id="custom-extract-text">Extract Chapters &amp; Topics</span>
+                  </button>
+                </div>
+
+                <div id="custom-selection-box" style="display: none;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <label class="field-label" style="margin: 0;">Select Chapters &amp; Topics</label>
+                    <div style="display: flex; gap: 6px;">
+                      <button type="button" class="btn-pdf-action outline" onclick="toggleAllCustomChapters(true)">All</button>
+                      <button type="button" class="btn-pdf-action outline" onclick="toggleAllCustomChapters(false)">None</button>
+                    </div>
+                  </div>
+                  <div id="custom-chapter-list" class="checkbox-stack" style="max-height: 280px; overflow-y: auto;"></div>
+                  <div id="custom-selection-summary" class="scope-callout" style="margin-top: 8px;"></div>
+                </div>
+              </div>
+
               <!-- Grade / Class Selector -->
               <div class="form-group">
                 <label for="grade-select" class="field-label">Student Class / Grade</label>
@@ -1645,7 +1700,7 @@
               </div>
 
               <!-- Examination Type Selector -->
-              <div class="form-group">
+              <div class="form-group" id="exam-type-group">
                 <label for="exam-type-select" class="field-label">Examination Type</label>
                 <select id="exam-type-select" class="form-control" required onchange="updateCurriculumDescription()">
                   <option value="prerequisite">Prerequisite Examination</option>
@@ -1707,6 +1762,22 @@
                 </div>
               </div>
 
+              <!-- Unique Question Paper Sets -->
+              <div class="form-group">
+                <label for="sets-select" class="field-label">Question Paper Sets</label>
+                <select id="sets-select" class="form-control">
+                  <option value="1" selected>1 — Single paper</option>
+                  <option value="2">2 sets (Set A, B)</option>
+                  <option value="3">3 sets (Set A, B, C)</option>
+                  <option value="4">4 sets (Set A – D)</option>
+                  <option value="5">5 sets (Set A – E)</option>
+                  <option value="6">6 sets (Set A – F)</option>
+                </select>
+                <div class="scope-callout" id="sets-hint" style="display: none; margin-top: 8px;">
+                  Each set has the same marks, difficulty, syllabus coverage and pattern, but different questions.
+                </div>
+              </div>
+
               <!-- Primary Submit Button -->
               <button type="submit" class="btn-generate-solid" id="btn-submit">
                 <span id="btn-text">Generate Question Paper</span>
@@ -1733,6 +1804,15 @@
           <!-- Active Question Paper View -->
           <div class="paper-active-wrap" id="paper-view" style="display: none;">
             
+            <!-- Question Paper Sets (shown when multiple sets are generated) -->
+            <div id="sets-bar" style="display: none; padding: 10px 14px; border-bottom: 1px solid var(--border-light);">
+              <div id="sets-warning" class="scope-callout" style="display: none; margin-bottom: 8px; background: var(--danger-bg); border-color: var(--danger-border); color: var(--danger-text);"></div>
+              <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between;">
+                <div class="view-segmented-wrap" id="sets-tabs"></div>
+                <div class="export-btn-group" id="sets-zip-links"></div>
+              </div>
+            </div>
+
             <!-- Toolbar -->
             <div class="paper-toolbar">
               <div class="view-segmented-wrap">
@@ -1844,6 +1924,10 @@
     let currentPaper = null;
     let currentView = 'teacher';
     let curriculumData = [];
+    let syllabusMode = 'predefined';
+    let customSyllabus = null;      // currently selected/extracted custom syllabus
+    let customInputMode = 'file';
+    let currentBatch = null;        // { batchId, papers } for multi-set generation
 
     // HTML escape utility for safe DOM rendering
     function escapeHtml(str) {
@@ -2027,6 +2111,7 @@
         if (!res.ok) throw new Error('Paper not found');
         currentPaper = await res.json();
         renderPaper(currentPaper);
+        await restoreSetsBarFor(currentPaper);
         toggleSavedPapersDrawer();
         showToast('Question paper loaded into preview.');
       } catch (err) {
@@ -2054,7 +2139,7 @@
 
       const gradeVal = document.getElementById('grade-select').value;
       const examTypeSelect = document.getElementById('exam-type-select');
-      const examType = examTypeSelect ? examTypeSelect.value : 'final';
+      const examType = (syllabusMode === 'custom' || !examTypeSelect) ? 'final' : examTypeSelect.value;
 
       if (gradeVal === '1' && examType === 'prerequisite') {
         showToast('Prerequisite Examination is not available for Class 1 (requires previous class curriculum).', true);
@@ -2079,6 +2164,32 @@
         include_figure_questions: document.getElementById('figures-checkbox') ? document.getElementById('figures-checkbox').checked : true,
       };
 
+      // Custom syllabus: restrict generation to the teacher's selected chapters/topics
+      if (syllabusMode === 'custom') {
+        if (!customSyllabus) {
+          showToast('Extract or choose a custom syllabus first.', true);
+          return;
+        }
+        const sel = getCustomSelection();
+        if (sel.error) {
+          showToast(sel.error, true);
+          return;
+        }
+        payload.custom_syllabus_id = customSyllabus.syllabus_id;
+        payload.selected_chapters = sel.chapters;
+        payload.selected_topics = sel.topics;
+        payload.exam_type = 'final';
+      }
+
+      // Multiple unique sets (Set A, B, C...) use the batch endpoint
+      const numSets = parseInt(document.getElementById('sets-select').value, 10) || 1;
+      let endpoint = '/papers/generate';
+      if (numSets > 1) {
+        endpoint = '/papers/generate-batch';
+        payload.num_versions = numSets;
+        payload.allow_fewer_sets = true;
+      }
+
       const btn = document.getElementById('btn-submit');
       const btnText = document.getElementById('btn-text');
       const btnSpinner = document.getElementById('btn-spinner');
@@ -2088,20 +2199,34 @@
       btnSpinner.style.display = 'block';
 
       try {
-        const res = await fetch('/papers/generate', {
+        const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
 
         if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.detail || 'Paper generation failed');
+          const err = await res.json().catch(() => ({}));
+          throw new Error(formatApiError(err.detail) || 'Paper generation failed');
         }
 
-        currentPaper = await res.json();
-        renderPaper(currentPaper);
-        showToast('Question paper generated successfully!');
+        const data = await res.json();
+        if (numSets > 1) {
+          currentBatch = { batchId: data.batch_id, papers: data.papers };
+          currentPaper = data.papers[0];
+          renderSetsBar(data.papers, data.batch_id, data.warnings || []);
+          renderPaper(currentPaper);
+          const n = data.papers.length;
+          showToast(n < numSets
+            ? `Only ${n} of ${numSets} sets could be generated with unique questions.`
+            : `${n} unique question paper sets generated successfully!`, n < numSets);
+        } else {
+          currentBatch = null;
+          hideSetsBar();
+          currentPaper = data;
+          renderPaper(currentPaper);
+          showToast('Question paper generated successfully!');
+        }
         loadPapers();
       } catch (err) {
         showToast(err.message, true);
@@ -2304,6 +2429,343 @@
       `;
 
       return block;
+    }
+
+
+    // -------------------------------------------------------------------------
+    // Error formatting (handles string, object and FastAPI validation errors)
+    // -------------------------------------------------------------------------
+    function formatApiError(detail) {
+      if (!detail) return '';
+      if (typeof detail === 'string') return detail;
+      if (Array.isArray(detail)) {
+        return detail.map(d => (d && d.msg) ? d.msg : String(d)).join('; ');
+      }
+      if (typeof detail === 'object') return detail.message || JSON.stringify(detail);
+      return String(detail);
+    }
+
+    // -------------------------------------------------------------------------
+    // Multiple unique sets (Set A, B, C ...)
+    // -------------------------------------------------------------------------
+    document.getElementById('sets-select').addEventListener('change', (e) => {
+      document.getElementById('sets-hint').style.display = parseInt(e.target.value, 10) > 1 ? 'block' : 'none';
+    });
+
+    function hideSetsBar() {
+      document.getElementById('sets-bar').style.display = 'none';
+    }
+
+    function setLabelOf(p, idx) {
+      return p.set_label || String.fromCharCode(65 + idx);
+    }
+
+    function renderSetsBar(papers, batchId, warnings) {
+      const bar = document.getElementById('sets-bar');
+      const tabs = document.getElementById('sets-tabs');
+      const zips = document.getElementById('sets-zip-links');
+      const warnEl = document.getElementById('sets-warning');
+      if (!papers || papers.length < 2) {
+        if (warnings && warnings.length) {
+          // a single remaining set still needs its warning shown
+          bar.style.display = 'block';
+          tabs.innerHTML = '';
+          zips.innerHTML = '';
+        } else {
+          hideSetsBar();
+          return;
+        }
+      }
+      bar.style.display = 'block';
+      tabs.innerHTML = '';
+      papers.forEach((p, idx) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'view-tab-btn' + (currentPaper && currentPaper.paper_id === p.paper_id ? ' active' : '');
+        btn.dataset.paperId = p.paper_id;
+        btn.textContent = `Set ${setLabelOf(p, idx)}`;
+        btn.addEventListener('click', () => selectSet(p.paper_id));
+        tabs.appendChild(btn);
+      });
+      zips.innerHTML = '';
+      if (batchId && papers.length > 1) {
+        zips.innerHTML = `
+          <a href="/papers/batch/${encodeURIComponent(batchId)}/pdfs?include_answers=true" target="_blank" class="btn-pdf-action primary">All Sets · Teacher PDFs (ZIP)</a>
+          <a href="/papers/batch/${encodeURIComponent(batchId)}/pdfs?include_answers=false" target="_blank" class="btn-pdf-action outline">All Sets · Student PDFs (ZIP)</a>`;
+      }
+      if (warnings && warnings.length) {
+        warnEl.style.display = 'block';
+        warnEl.textContent = warnings.join(' ');
+      } else {
+        warnEl.style.display = 'none';
+        warnEl.textContent = '';
+      }
+    }
+
+    async function selectSet(paperId) {
+      let paper = currentBatch && currentBatch.papers.find(p => p.paper_id === paperId);
+      if (!paper) {
+        const res = await fetch(`/papers/${paperId}`);
+        if (!res.ok) { showToast('Could not load this set.', true); return; }
+        paper = await res.json();
+      }
+      currentPaper = paper;
+      renderPaper(paper);
+      document.querySelectorAll('#sets-tabs .view-tab-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.paperId === paperId);
+      });
+    }
+
+    // When a saved paper belongs to a multi-set batch, rebuild the set tabs for it
+    async function restoreSetsBarFor(paper) {
+      if (!paper || !paper.batch_id || (paper.num_versions || 1) < 2) {
+        currentBatch = null;
+        hideSetsBar();
+        return;
+      }
+      try {
+        const res = await fetch('/papers');
+        if (!res.ok) throw new Error('list failed');
+        const siblings = (await res.json())
+          .filter(p => p.batch_id === paper.batch_id)
+          .sort((a, b) => a.version_number - b.version_number);
+        currentBatch = { batchId: paper.batch_id, papers: siblings };
+        renderSetsBar(siblings, paper.batch_id, []);
+      } catch (e) {
+        currentBatch = null;
+        hideSetsBar();
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // Custom syllabus: mode switch, upload/manual entry, selection, save & reuse
+    // -------------------------------------------------------------------------
+    function setSyllabusMode(mode) {
+      syllabusMode = mode;
+      document.querySelectorAll('#syllabus-mode-group .segmented-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.mode === mode);
+      });
+      const isCustom = mode === 'custom';
+      document.getElementById('custom-syllabus-panel').style.display = isCustom ? 'block' : 'none';
+      document.getElementById('exam-type-group').style.display = isCustom ? 'none' : 'block';
+      syncGradeOptions(isCustom);
+      if (isCustom) {
+        loadCustomSyllabi();
+      }
+    }
+
+    // Predefined textbooks exist for Classes 1-5; custom syllabi may target other classes
+    function syncGradeOptions(isCustom) {
+      const sel = document.getElementById('grade-select');
+      const extra = [6, 7, 8, 9, 10];
+      sel.querySelectorAll('option[data-custom-only]').forEach(o => o.remove());
+      if (isCustom) {
+        extra.forEach(n => {
+          const o = document.createElement('option');
+          o.value = String(n);
+          o.textContent = `Class ${n}`;
+          o.setAttribute('data-custom-only', '1');
+          sel.appendChild(o);
+        });
+      } else if (parseInt(sel.value, 10) > 5 || !sel.value) {
+        sel.value = '5';
+      }
+    }
+
+    function setCustomInputMode(mode) {
+      customInputMode = mode;
+      document.querySelectorAll('#custom-input-mode-group .segmented-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.imode === mode);
+      });
+      document.getElementById('custom-file-wrap').style.display = mode === 'file' ? 'block' : 'none';
+      document.getElementById('custom-text-wrap').style.display = mode === 'text' ? 'block' : 'none';
+    }
+
+    async function loadCustomSyllabi(selectId) {
+      const sel = document.getElementById('custom-saved-select');
+      try {
+        const res = await fetch('/syllabi/custom');
+        if (!res.ok) throw new Error('Failed to load saved syllabi');
+        const list = await res.json();
+        sel.innerHTML = '<option value="">+ Create a new custom syllabus</option>';
+        list.forEach(s => {
+          const o = document.createElement('option');
+          o.value = s.syllabus_id;
+          o.textContent = `${s.name} (${s.num_chapters} ch · ${s.num_topics} topics)`;
+          sel.appendChild(o);
+        });
+        if (selectId) sel.value = selectId;
+      } catch (err) {
+        showToast(err.message, true);
+      }
+    }
+
+    async function onSavedSyllabusChange() {
+      const id = document.getElementById('custom-saved-select').value;
+      const delBtn = document.getElementById('custom-delete-btn');
+      if (!id) {
+        customSyllabus = null;
+        delBtn.style.display = 'none';
+        document.getElementById('custom-new-box').style.display = 'block';
+        document.getElementById('custom-selection-box').style.display = 'none';
+        return;
+      }
+      try {
+        const res = await fetch(`/syllabi/custom/${encodeURIComponent(id)}`);
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(formatApiError(err.detail) || 'Could not load syllabus');
+        }
+        customSyllabus = await res.json();
+        delBtn.style.display = 'inline-flex';
+        document.getElementById('custom-new-box').style.display = 'none';
+        if (customSyllabus.grade) {
+          const g = String(customSyllabus.grade).replace(/\D/g, '');
+          const gs = document.getElementById('grade-select');
+          if (g && Array.from(gs.options).some(o => o.value === g)) gs.value = g;
+        }
+        renderCustomSelection();
+      } catch (err) {
+        showToast(err.message, true);
+      }
+    }
+
+    async function extractCustomSyllabus() {
+      const name = document.getElementById('custom-name-input').value.trim();
+      if (!name) { showToast('Please enter a name for the custom syllabus.', true); return; }
+
+      const fd = new FormData();
+      fd.append('name', name);
+      fd.append('subject', 'Mathematics');
+      fd.append('grade', document.getElementById('grade-select').value);
+      if (customInputMode === 'file') {
+        const f = document.getElementById('custom-file-input').files[0];
+        if (!f) { showToast('Choose a PDF or DOCX file to upload.', true); return; }
+        fd.append('file', f);
+      } else {
+        const t = document.getElementById('custom-text-input').value.trim();
+        if (!t) { showToast('Enter the syllabus content first.', true); return; }
+        fd.append('text', t);
+      }
+
+      const btn = document.getElementById('custom-extract-btn');
+      const txt = document.getElementById('custom-extract-text');
+      btn.disabled = true;
+      txt.textContent = 'Extracting & indexing...';
+      try {
+        const res = await fetch('/syllabi/custom', { method: 'POST', body: fd });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(formatApiError(err.detail) || 'Syllabus extraction failed');
+        }
+        customSyllabus = await res.json();
+        document.getElementById('custom-name-input').value = '';
+        document.getElementById('custom-text-input').value = '';
+        document.getElementById('custom-file-input').value = '';
+        await loadCustomSyllabi(customSyllabus.syllabus_id);
+        document.getElementById('custom-delete-btn').style.display = 'inline-flex';
+        document.getElementById('custom-new-box').style.display = 'none';
+        renderCustomSelection();
+        showToast('Syllabus saved. Select the chapters and topics to include.');
+      } catch (err) {
+        showToast(err.message, true);
+      } finally {
+        btn.disabled = false;
+        txt.textContent = 'Extract Chapters & Topics';
+      }
+    }
+
+    function renderCustomSelection() {
+      const box = document.getElementById('custom-selection-box');
+      const list = document.getElementById('custom-chapter-list');
+      list.innerHTML = '';
+      if (!customSyllabus) { box.style.display = 'none'; return; }
+      box.style.display = 'block';
+
+      customSyllabus.chapters.forEach((ch, ci) => {
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'padding: 4px 0; border-bottom: 1px solid var(--border-light);';
+        const topicsHtml = (ch.topics || []).map((t, ti) => `
+          <label class="checkbox-item checkbox-label" style="margin-left: 22px; font-size: 0.78rem;">
+            <input type="checkbox" class="custom-topic-cb" data-ch="${ci}" data-topic="${ti}" checked>
+            <span>${escapeHtml(t)}</span>
+          </label>`).join('');
+        wrap.innerHTML = `
+          <label class="checkbox-item checkbox-label" style="font-weight: 600;">
+            <input type="checkbox" class="custom-chapter-cb" data-ch="${ci}" checked>
+            <span>${escapeHtml(ch.title)}${ch.topics && ch.topics.length ? ` <span style="font-weight:400;color:var(--text-muted);">(${ch.topics.length} topics)</span>` : ''}</span>
+          </label>
+          <div class="custom-topic-group" data-ch="${ci}">${topicsHtml}</div>`;
+        list.appendChild(wrap);
+      });
+
+      list.querySelectorAll('.custom-chapter-cb').forEach(cb => {
+        cb.addEventListener('change', () => {
+          const ci = cb.dataset.ch;
+          list.querySelectorAll(`.custom-topic-cb[data-ch="${ci}"]`).forEach(t => {
+            t.disabled = !cb.checked;
+            if (cb.checked) t.checked = true;
+          });
+          updateCustomSummary();
+        });
+      });
+      list.querySelectorAll('.custom-topic-cb').forEach(cb => cb.addEventListener('change', updateCustomSummary));
+      updateCustomSummary();
+    }
+
+    function toggleAllCustomChapters(checked) {
+      document.querySelectorAll('.custom-chapter-cb').forEach(cb => {
+        cb.checked = checked;
+        cb.dispatchEvent(new Event('change'));
+      });
+    }
+
+    // Returns { chapters, topics } or { error }
+    function getCustomSelection() {
+      if (!customSyllabus) return { error: 'Choose a custom syllabus first.' };
+      const chapters = [];
+      const topics = {};
+      for (let ci = 0; ci < customSyllabus.chapters.length; ci++) {
+        const ch = customSyllabus.chapters[ci];
+        const cb = document.querySelector(`.custom-chapter-cb[data-ch="${ci}"]`);
+        if (!cb || !cb.checked) continue;
+        chapters.push(ch.title);
+        const tcbs = Array.from(document.querySelectorAll(`.custom-topic-cb[data-ch="${ci}"]`));
+        if (tcbs.length) {
+          const picked = tcbs.filter(t => t.checked).map(t => ch.topics[parseInt(t.dataset.topic, 10)]);
+          if (picked.length === 0) {
+            return { error: `Select at least one topic in "${ch.title}" or untick the chapter.` };
+          }
+          if (picked.length < tcbs.length) topics[ch.title] = picked;
+        }
+      }
+      if (chapters.length === 0) return { error: 'Select at least one chapter from the custom syllabus.' };
+      return { chapters, topics };
+    }
+
+    function updateCustomSummary() {
+      const el = document.getElementById('custom-selection-summary');
+      const sel = getCustomSelection();
+      if (sel.error) {
+        el.innerHTML = `<strong>Selection:</strong> ${escapeHtml(sel.error)}`;
+        return;
+      }
+      el.innerHTML = `<strong>Questions will be generated only from:</strong> ${sel.chapters.length} of ${customSyllabus.chapters.length} chapters selected.`;
+    }
+
+    async function deleteCustomSyllabus() {
+      if (!customSyllabus) return;
+      if (!confirm(`Delete saved syllabus "${customSyllabus.name}"? This cannot be undone.`)) return;
+      try {
+        const res = await fetch(`/syllabi/custom/${encodeURIComponent(customSyllabus.syllabus_id)}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Delete failed');
+        customSyllabus = null;
+        await loadCustomSyllabi();
+        await onSavedSyllabusChange();
+        showToast('Custom syllabus deleted.');
+      } catch (err) {
+        showToast(err.message, true);
+      }
     }
 
     // -------------------------------------------------------------------------

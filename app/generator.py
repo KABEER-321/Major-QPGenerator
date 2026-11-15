@@ -96,6 +96,14 @@ Return a valid JSON array of question objects. Each object must have these field
 Return ONLY the JSON array, no markdown fences, no extra text."""
 
 
+def _full_syllabus_suffix(scope_str: str | None) -> str:
+    """Custom-syllabus scopes already say 'ONLY these chapters'; never label them 'Full Syllabus'."""
+    if scope_str and str(scope_str).startswith("Custom syllabus"):
+        return ""
+    return " (Full Syllabus)"
+
+
+
 def get_grade_pedagogical_prompt(grade: int | str | None, qtype: QuestionType | None = None) -> str:
     """Return grade-specific pedagogical instructions to ensure age-appropriate mathematical problems across Classes 1 to 5."""
     from app.curriculum import parse_grade_number
@@ -232,7 +240,7 @@ def _build_human_prompt(
 - Academic Class: {academic_class}
 - Curriculum Class: {curriculum_class}
 - Subject: {request.subject}
-- Permitted Syllabus Scope: {scope_str} (Full Syllabus)
+- Permitted Syllabus Scope: {scope_str}{_full_syllabus_suffix(scope_str)}
 - Focus: Comprehensive assessment covering the applicable Class {curriculum_class} syllabus."""
 
     return f"""Generate a mathematics question paper with these requirements:
@@ -555,7 +563,7 @@ CRITICAL SYLLABUS ENFORCEMENT RULES:
     else:
         exam_header = f"""EXAMINATION TYPE: Final Examination
 - Academic Class: {academic_class}
-- Scope: {scope_str} (Full Syllabus)"""
+- Scope: {scope_str}{_full_syllabus_suffix(scope_str)}"""
 
     marks_dist = sec.get_marks_distribution()
     needed = sec.num_questions
@@ -1373,7 +1381,7 @@ CRITICAL SYLLABUS ENFORCEMENT RULES:
         else:
             exam_header = f"""EXAMINATION TYPE: Final Examination
 - Academic Class: {academic_class}
-- Scope: {scope_str} (Full Syllabus)"""
+- Scope: {scope_str}{_full_syllabus_suffix(scope_str)}"""
 
         effective_class = curriculum_grade or academic_grade or grade
         pedagogical_guidance = get_grade_pedagogical_prompt(effective_class, sec.question_type)

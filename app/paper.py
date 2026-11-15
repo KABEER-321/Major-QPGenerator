@@ -33,6 +33,7 @@ def assemble_paper(
     version_number: int = 1,
     num_versions: int = 1,
     blueprint_id: Optional[str] = None,
+    set_label: Optional[str] = None,
 ) -> Paper:
     """
     Assemble validated questions into a Paper object.
@@ -46,7 +47,10 @@ def assemble_paper(
     exam_type = request.exam_type or ExamType.FINAL
 
     grade_display = format_grade_display(academic_class)
-    version_suffix = f" (Version {version_number})" if num_versions > 1 else ""
+    if set_label:
+        version_suffix = f" (Set {set_label})"
+    else:
+        version_suffix = f" (Version {version_number})" if num_versions > 1 else ""
     title = f"{grade_display} {request.subject} — {exam_type.display_name}{version_suffix}"
 
     # Ensure every question has its context fields filled
@@ -180,6 +184,9 @@ def assemble_paper(
         version_number=version_number,
         num_versions=num_versions,
         blueprint_id=blueprint_id,
+        set_label=set_label,
+        custom_syllabus_id=getattr(request, "custom_syllabus_id", None),
+        custom_syllabus_name=getattr(request, "custom_syllabus_name", None),
     )
     return paper
 
@@ -265,6 +272,7 @@ def list_papers() -> list[PaperSummary]:
                     version_number=data.get("version_number", 1),
                     num_versions=data.get("num_versions", 1),
                     batch_id=data.get("batch_id"),
+                    set_label=data.get("set_label"),
                 )
             )
         except Exception as e:
