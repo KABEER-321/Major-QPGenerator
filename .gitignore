@@ -18,6 +18,8 @@ data/uploads/*
 data/indexes/*
 !data/indexes/curriculum_class_*
 data/papers/
+data/worksheets/
+data/student_performance/
 data/custom_syllabi/
 data/e2e_exports/
 

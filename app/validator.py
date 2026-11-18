@@ -124,7 +124,12 @@ def check_question_clarity(
         )
 
     # 4. Reject dangling prompts
-    if clean.endswith((":", "following", "following:")) and (not options or len(options) == 0):
+    has_fig = bool(has_valid_figure or figure)
+    if (
+        (clean.endswith(("following", "following:", "the following:", "as follows:", "shown below:")) or (clean.endswith(":") and not re.search(r"\b(?:find|calculate|evaluate|solve|write|count|state|simplify|name)\b", clean, re.IGNORECASE)))
+        and (not options or len(options) == 0)
+        and not has_fig
+    ):
         return False, "Question text ends with incomplete prompt ('following:') without options or data."
 
     # 5. Reject comparison questions without operands or options

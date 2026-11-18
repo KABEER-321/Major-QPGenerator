@@ -1615,8 +1615,18 @@
       </div>
     </section>
 
+    <!-- Feature Navigation Tabs: Question Paper Generator vs Personalized Worksheets -->
+    <div style="display: flex; gap: 12px; margin-bottom: 18px; align-items: center; border-bottom: 2px solid var(--border-light); padding-bottom: 10px;">
+      <button type="button" id="tab-nav-generator" onclick="switchMainFeatureTab('generator')" style="padding: 9px 20px; font-size: 14px; font-weight: 700; border-radius: 8px; cursor: pointer; border: 1px solid var(--brand-primary); background: var(--brand-primary); color: white; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); transition: all 0.2s;">
+        <span>📋</span> Question Paper Generator
+      </button>
+      <button type="button" id="tab-nav-worksheets" onclick="switchMainFeatureTab('worksheets')" style="padding: 9px 20px; font-size: 14px; font-weight: 700; border-radius: 8px; cursor: pointer; border: 1px solid var(--border-light); background: var(--bg-surface); color: var(--text-primary); display: inline-flex; align-items: center; gap: 8px; transition: all 0.2s;">
+        <span>🎯</span> Student Performance & Personalized Worksheets
+      </button>
+    </div>
+
     <!-- Main Workspace: Form on Left, Output Paper on Right -->
-    <main class="workspace-grid">
+    <main class="workspace-grid" id="main-generator-workspace">
 
       <!-- Left Column: Assessment Parameters Form -->
       <section class="controls-col">
@@ -1762,19 +1772,55 @@
                 </div>
               </div>
 
-              <!-- Unique Question Paper Sets -->
+              <!-- Unique Question Paper Sets & Individual Student Papers -->
               <div class="form-group">
-                <label for="sets-select" class="field-label">Question Paper Sets</label>
-                <select id="sets-select" class="form-control">
-                  <option value="1" selected>1 — Single paper</option>
-                  <option value="2">2 sets (Set A, B)</option>
-                  <option value="3">3 sets (Set A, B, C)</option>
-                  <option value="4">4 sets (Set A – D)</option>
-                  <option value="5">5 sets (Set A – E)</option>
-                  <option value="6">6 sets (Set A – F)</option>
-                </select>
+                <label class="field-label" id="gen-mode-title">Paper Generation Mode</label>
+                <div style="display: flex; gap: 14px; margin-bottom: 8px; flex-wrap: wrap;">
+                  <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; color: var(--text-primary);">
+                    <input type="radio" name="gen-mode" value="individual" id="mode-individual" checked onchange="updateGenModeUI()">
+                    <span><b>Individual Student Papers</b> (Unique paper per student)</span>
+                  </label>
+                  <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; color: var(--text-primary);">
+                    <input type="radio" name="gen-mode" value="sets" id="mode-sets" onchange="updateGenModeUI()">
+                    <span><b>Numbered Sets</b> (Set A, B, C...)</span>
+                  </label>
+                </div>
+
+                <label class="field-label" id="sets-label" style="font-size: 12px; margin-bottom: 4px;">Number of Student Papers</label>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                  <select id="sets-select" class="form-control" style="flex: 1;" onchange="onSetsSelectChange()">
+                    <option value="1">1 Student (Single Paper)</option>
+                    <option value="2">2 Students</option>
+                    <option value="3">3 Students</option>
+                    <option value="4">4 Students</option>
+                    <option value="5">5 Students</option>
+                    <option value="6">6 Students</option>
+                    <option value="10">10 Students</option>
+                    <option value="15">15 Students</option>
+                    <option value="20">20 Students</option>
+                    <option value="25">25 Students</option>
+                    <option value="30">30 Students (Standard Classroom)</option>
+                    <option value="custom">Custom Student Count (up to 50)...</option>
+                  </select>
+                  <input type="number" id="custom-sets-input" class="form-control" style="display: none; width: 110px;" min="1" max="50" placeholder="Count" value="5" oninput="onCustomSetsInput()">
+                </div>
+
+                <!-- Collapsible Student Roster -->
+                <div id="roster-container" style="margin-top: 10px;">
+                  <details id="roster-details" style="background: var(--bg-surface); border: 1px solid var(--border-light); border-radius: 6px; padding: 8px 12px;">
+                    <summary style="font-size: 13px; font-weight: 600; cursor: pointer; color: var(--text-primary); user-select: none;">
+                      📋 Optional Student Roster (Assign Names & Roll Numbers)
+                    </summary>
+                    <p style="font-size: 12px; color: var(--text-secondary); margin: 6px 0 8px 0;">
+                      Enter or paste student names and roll numbers (e.g. <code>101, Aarav Sharma</code> or one name per line). Papers will be individually assigned.
+                    </p>
+                    <textarea id="roster-input" class="form-control" rows="4" style="font-family: monospace; font-size: 12px;" placeholder="101, Aarav Sharma&#10;102, Diya Patel&#10;103, Mohammed Zaid" oninput="onRosterInput()"></textarea>
+                    <div id="roster-count-badge" style="font-size: 11px; color: var(--brand-primary); font-weight: 600; margin-top: 4px;"></div>
+                  </details>
+                </div>
+
                 <div class="scope-callout" id="sets-hint" style="display: none; margin-top: 8px;">
-                  Each set has the same marks, difficulty, syllabus coverage and pattern, but different questions.
+                  Every student receives a different question paper with unique problems and figures, following the exact same blueprint, total marks, and academic difficulty.
                 </div>
               </div>
 
@@ -1875,9 +1921,9 @@
 
                 <!-- Student Details Strip (Shown in Student View) -->
                 <div class="student-info-bar" id="student-details-strip" style="display: none;">
-                  <div>Student Name: ____________________________________</div>
-                  <div>Roll Number: ____________</div>
-                  <div>Section / Date: _________</div>
+                  <div id="strip-student-name">Student Name: ____________________________________</div>
+                  <div id="strip-student-roll">Roll Number: ____________</div>
+                  <div id="strip-student-sec">Section / Date: _________</div>
                 </div>
 
                 <!-- General Instructions -->
@@ -1896,6 +1942,213 @@
         </div>
       </section>
 
+    </main>
+
+    <!-- Personalized Worksheets Workspace -->
+    <main class="workspace-grid" id="main-worksheets-workspace" style="display: none;">
+      <!-- Left Column: Performance Parameters & Controls -->
+      <section class="controls-col">
+        <div class="panel-card">
+          <div class="panel-header">
+            <h2 class="panel-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="m4.93 4.93 4.24 4.24"></path><path d="m14.83 9.17 4.24-4.24"></path><path d="m14.83 14.83 4.24 4.24"></path><path d="m9.17 14.83-4.24 4.24"></path><circle cx="12" cy="12" r="4"></circle></svg>
+              Worksheet Parameters
+            </h2>
+            <p class="panel-subtitle">Select class, evaluation data, and worksheet scope</p>
+          </div>
+
+          <div class="panel-body">
+            <form id="worksheet-form" onsubmit="event.preventDefault(); generateWorksheets();">
+
+              <div class="form-group">
+                <label for="ws-grade-select" class="field-label">Student Class / Grade</label>
+                <select id="ws-grade-select" class="form-control" onchange="onWorksheetGradeChange()">
+                  <option value="5" selected>Class 5</option>
+                  <option value="4">Class 4</option>
+                  <option value="3">Class 3</option>
+                  <option value="2">Class 2</option>
+                  <option value="1">Class 1</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="ws-assessment-title" class="field-label">Assessment Reference / Exam</label>
+                <input type="text" id="ws-assessment-title" class="form-control" value="Mid-Semester Diagnostic Assessment">
+              </div>
+
+              <div class="form-group">
+                <label for="ws-qcount-input" class="field-label">Questions per Worksheet</label>
+                <input type="number" id="ws-qcount-input" class="form-control" value="10" min="3" max="30" required>
+                <span class="field-hint">Allocated: 50% Weak, 30% Needs Improvement, 15% Average, 5% Strong</span>
+              </div>
+
+              <div class="form-group">
+                <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; color: var(--text-primary);">
+                  <input type="checkbox" id="ws-include-figures" checked>
+                  <span>Include Figure-Based Questions (Geometry & Visuals)</span>
+                </label>
+              </div>
+
+              <!-- Performance Mode: Simulated vs Manual -->
+              <div class="form-group" style="border-top: 1px solid var(--border-light); padding-top: 14px; margin-top: 14px;">
+                <label class="field-label">Performance Evaluation Source</label>
+                <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px;">
+                  <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; color: var(--text-primary);">
+                    <input type="radio" name="ws-perf-mode" value="simulated" id="ws-mode-simulated" checked onchange="onPerfModeChange()">
+                    <span><b>Simulated Performance (Demo Mode)</b></span>
+                  </label>
+                  <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; color: var(--text-primary);">
+                    <input type="radio" name="ws-perf-mode" value="manual" id="ws-mode-manual" onchange="onPerfModeChange()">
+                    <span><b>Manual Performance Entry</b></span>
+                  </label>
+                </div>
+
+                <!-- Simulation notice and regenerate button -->
+                <div id="sim-controls" style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 10px; margin-bottom: 12px;">
+                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                    <span style="font-size: 11px; font-weight: 700; color: #b45309; text-transform: uppercase;">★ DEMO / SIMULATED DATA</span>
+                    <button type="button" class="btn-subtle" onclick="fetchSimulatedProfiles()" style="padding: 4px 10px; font-size: 11px; font-weight: 600;">
+                      🔄 Regenerate Sample Marks
+                    </button>
+                  </div>
+                  <p style="font-size: 11px; color: #92400e; margin: 4px 0 0 0;">
+                    Evaluation module integration ready. Using realistic simulated student profiles for demonstration.
+                  </p>
+                </div>
+
+                <!-- Manual entry container (hidden by default) -->
+                <div id="manual-controls" style="display: none; background: var(--bg-surface); border: 1px solid var(--border-light); border-radius: 6px; padding: 10px; margin-bottom: 12px;">
+                  <p style="font-size: 12px; color: var(--text-secondary); margin: 0 0 8px 0;">
+                    Enter or adjust marks scored per chapter/topic (Maximum 20 marks each):
+                  </p>
+                  <div id="manual-topics-table" style="display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto;">
+                    <!-- Populated dynamically -->
+                  </div>
+                </div>
+              </div>
+
+              <!-- Submit button -->
+              <button type="submit" class="btn-generate-solid" id="btn-ws-generate" style="background: #2563eb;">
+                <span id="btn-ws-text">Generate Personalized Worksheets</span>
+                <div class="spinner-sm" id="btn-ws-spinner" style="display: none;"></div>
+              </button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Column: Student Performance Analysis Dashboard & Worksheet Output -->
+      <section class="preview-col">
+        <div class="results-panel">
+
+          <!-- View Mode Toggle: Dashboard vs Generated Worksheets -->
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; border-bottom: 1px solid var(--border-light); padding-bottom: 10px; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; gap: 8px;">
+              <button type="button" class="btn-subtle" id="ws-view-dash-btn" onclick="switchWsRightTab('dashboard')" style="background: #2563eb; color: white; font-weight: 600;">
+                📊 Student Performance Dashboard
+              </button>
+              <button type="button" class="btn-subtle" id="ws-view-sheet-btn" onclick="switchWsRightTab('worksheet')" style="font-weight: 600;">
+                📄 Worksheet Live Preview
+              </button>
+              <button type="button" class="btn-subtle" id="ws-view-hist-btn" onclick="switchWsRightTab('history')" style="font-weight: 600;">
+                📁 Saved Worksheets (<span id="ws-history-count">0</span>)
+              </button>
+            </div>
+
+            <!-- Download Buttons (when worksheets active) -->
+            <div id="ws-action-buttons" style="display: none; gap: 8px;">
+              <button type="button" class="btn-subtle" onclick="downloadCurrentWsPdf(false)" style="color: #2563eb; font-weight: 600;">
+                📥 Student PDF
+              </button>
+              <button type="button" class="btn-subtle" onclick="downloadCurrentWsPdf(true)" style="color: #059669; font-weight: 600;">
+                🔑 Teacher Key PDF
+              </button>
+              <button type="button" class="btn-subtle" onclick="downloadAllWsZip(false)" style="background: #f1f5f9; font-weight: 600;">
+                📦 All Worksheets (ZIP)
+              </button>
+            </div>
+          </div>
+
+          <!-- Tab 1: Student Performance Dashboard -->
+          <div id="ws-tab-dashboard">
+            <!-- Student Selector Pill Row -->
+            <div style="display: flex; gap: 8px; margin-bottom: 14px; overflow-x: auto; padding-bottom: 6px;" id="ws-student-tabs">
+              <!-- Rendered dynamically -->
+            </div>
+
+            <!-- Active Student Card & Topic Breakdown -->
+            <div id="ws-active-student-card" style="background: var(--bg-surface); border: 1px solid var(--border-light); border-radius: 8px; padding: 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-light); padding-bottom: 10px; margin-bottom: 14px;">
+                <div>
+                  <h3 id="ws-student-name" style="margin: 0; font-size: 16px; font-weight: 700; color: var(--text-primary);">Aarav Sharma</h3>
+                  <span id="ws-student-meta" style="font-size: 12px; color: var(--text-secondary);">Roll No: 101 | Class 5 | Profile: Struggles with Fractions</span>
+                </div>
+                <div style="text-align: right;">
+                  <span style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 600;">Overall Mastery</span>
+                  <div id="ws-overall-badge" style="font-size: 18px; font-weight: 800; color: #2563eb;">68.5%</div>
+                </div>
+              </div>
+
+              <!-- Strengths vs Areas Requiring Improvement -->
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 18px;">
+                <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 10px;">
+                  <div style="font-size: 12px; font-weight: 700; color: #166534; margin-bottom: 4px;">✓ Mastered Topics (Strengths)</div>
+                  <div id="ws-strengths-list" style="font-size: 12px; color: #15803d;">None recorded</div>
+                </div>
+                <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 10px;">
+                  <div style="font-size: 12px; font-weight: 700; color: #991b1b; margin-bottom: 4px;">⚠️ Areas Requiring Improvement (Focus Target)</div>
+                  <div id="ws-weakness-list" style="font-size: 12px; color: #b91c1c;">None recorded</div>
+                </div>
+              </div>
+
+              <!-- Topic Mastery Progress Bars -->
+              <h4 style="font-size: 13px; font-weight: 700; margin: 0 0 10px 0; color: var(--text-primary);">Topic-Wise Performance & Question Target Allocation</h4>
+              <div id="ws-topic-bars-list" style="display: flex; flex-direction: column; gap: 10px;">
+                <!-- Populated dynamically -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab 2: Worksheet Live Preview -->
+          <div id="ws-tab-worksheet" style="display: none;">
+            <!-- Student Tabs for Generated Worksheets -->
+            <div style="display: flex; gap: 8px; margin-bottom: 12px; overflow-x: auto; padding-bottom: 6px;" id="ws-generated-tabs">
+              <!-- Rendered dynamically -->
+            </div>
+
+            <!-- View Mode Switch: Student Sheet vs Teacher Key -->
+            <div style="display: flex; gap: 10px; margin-bottom: 12px; align-items: center;">
+              <span style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">Preview Mode:</span>
+              <button type="button" id="btn-ws-mode-student" class="btn-subtle" onclick="toggleWsAnswerMode(false)" style="background: #2563eb; color: white; padding: 4px 12px; font-size: 12px;">
+                Student Practice Sheet (Questions & Workspace)
+              </button>
+              <button type="button" id="btn-ws-mode-teacher" class="btn-subtle" onclick="toggleWsAnswerMode(true)" style="padding: 4px 12px; font-size: 12px;">
+                Teacher Answer Key & Solutions
+              </button>
+            </div>
+
+            <!-- Worksheet Document Preview Paper -->
+            <div id="ws-doc-preview" style="background: white; border: 1px solid var(--border-light); border-radius: 8px; padding: 24px; min-height: 450px;">
+              <div id="ws-preview-content">
+                <div style="text-align: center; color: var(--text-muted); padding: 40px;">
+                  No personalized worksheet generated yet. Select a student and click <strong>Generate Personalized Worksheets</strong> on the left.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab 3: Worksheet History -->
+          <div id="ws-tab-history" style="display: none;">
+            <div style="background: var(--bg-surface); border: 1px solid var(--border-light); border-radius: 8px; padding: 16px;">
+              <h4 style="margin: 0 0 12px 0; font-size: 14px; font-weight: 700;">Previously Generated Worksheets</h4>
+              <div id="ws-history-table-container">
+                <p style="font-size: 12px; color: var(--text-muted); text-align: center; padding: 20px;">No worksheets saved yet.</p>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
     </main>
   </div>
 
@@ -2181,13 +2434,54 @@
         payload.exam_type = 'final';
       }
 
-      // Multiple unique sets (Set A, B, C...) use the batch endpoint
-      const numSets = parseInt(document.getElementById('sets-select').value, 10) || 1;
+      // Multiple unique sets or individual student papers
+      const genMode = document.querySelector('input[name="gen-mode"]:checked')?.value || 'individual';
+      let numSets = 1;
+      const setsVal = document.getElementById('sets-select').value;
+      if (setsVal === 'custom') {
+        numSets = parseInt(document.getElementById('custom-sets-input').value, 10) || 1;
+      } else {
+        numSets = parseInt(setsVal, 10) || 1;
+      }
+
+      // Parse optional student roster
+      const rosterRaw = (document.getElementById('roster-input')?.value || '').trim();
+      const studentsList = [];
+      if (rosterRaw) {
+        const lines = rosterRaw.split('\n').map(l => l.trim()).filter(Boolean);
+        lines.forEach((line) => {
+          let name = line;
+          let roll = null;
+          if (line.includes(',')) {
+            const parts = line.split(',');
+            if (/^\d+[A-Za-z0-9_\-]*$/.test(parts[0].trim())) {
+              roll = parts[0].trim();
+              name = parts.slice(1).join(',').trim();
+            } else {
+              name = parts[0].trim();
+              roll = parts.slice(1).join(',').trim();
+            }
+          }
+          if (name) {
+            studentsList.push({ student_name: name, roll_number: roll });
+          }
+        });
+      }
+
+      if (studentsList.length > 0) {
+        numSets = studentsList.length;
+      }
+
       let endpoint = '/papers/generate';
-      if (numSets > 1) {
+      if (numSets > 1 || studentsList.length > 0) {
         endpoint = '/papers/generate-batch';
         payload.num_versions = numSets;
         payload.allow_fewer_sets = true;
+        payload.generation_mode = genMode;
+        if (studentsList.length > 0) {
+          payload.students = studentsList;
+          payload.generation_mode = 'individual';
+        }
       }
 
       const btn = document.getElementById('btn-submit');
@@ -2211,15 +2505,17 @@
         }
 
         const data = await res.json();
-        if (numSets > 1) {
+        if (numSets > 1 || (data.papers && data.papers.length > 1)) {
           currentBatch = { batchId: data.batch_id, papers: data.papers };
           currentPaper = data.papers[0];
           renderSetsBar(data.papers, data.batch_id, data.warnings || []);
           renderPaper(currentPaper);
           const n = data.papers.length;
+          const isStudentMode = data.generation_mode === 'individual' || data.papers.some(p => p.student_name);
+          const itemTerm = isStudentMode ? 'individual student papers' : 'sets';
           showToast(n < numSets
-            ? `Only ${n} of ${numSets} sets could be generated with unique questions.`
-            : `${n} unique question paper sets generated successfully!`, n < numSets);
+            ? `Only ${n} of ${numSets} ${itemTerm} could be generated with unique questions.`
+            : `${n} ${itemTerm} generated successfully!`, n < numSets);
         } else {
           currentBatch = null;
           hideSetsBar();
@@ -2258,6 +2554,18 @@
       document.getElementById('badge-scope').textContent = `Scope: ${paper.syllabus_scope || (paper.exam_type === 'midterm' ? 'First Half of Syllabus' : 'Full Syllabus')}`;
       document.getElementById('badge-diff').textContent = (paper.difficulty || 'MEDIUM').toUpperCase();
       document.getElementById('badge-counts').textContent = `${paper.num_questions} Questions • ${paper.total_marks} Marks`;
+
+      const stripName = document.getElementById('strip-student-name');
+      const stripRoll = document.getElementById('strip-student-roll');
+      if (stripName && stripRoll) {
+        if (paper.student_name) {
+          stripName.innerHTML = `Student Name: <b>${escapeHtml(paper.student_name)}</b>`;
+          stripRoll.innerHTML = `Roll Number: <b>${escapeHtml(paper.roll_number || '—')}</b>`;
+        } else {
+          stripName.textContent = 'Student Name: ____________________________________';
+          stripRoll.textContent = 'Roll Number: ____________';
+        }
+      }
 
       document.getElementById('download-teacher-btn').href = `/papers/${paper.paper_id}/pdf?include_answers=true`;
       document.getElementById('download-student-btn').href = `/papers/${paper.paper_id}/pdf?include_answers=false`;
@@ -2446,17 +2754,138 @@
     }
 
     // -------------------------------------------------------------------------
-    // Multiple unique sets (Set A, B, C ...)
+    // Multiple unique sets or individual student papers
     // -------------------------------------------------------------------------
-    document.getElementById('sets-select').addEventListener('change', (e) => {
-      document.getElementById('sets-hint').style.display = parseInt(e.target.value, 10) > 1 ? 'block' : 'none';
-    });
+    const INDIVIDUAL_OPTIONS = [
+      { value: '1', text: '1 Student (Single Paper)' },
+      { value: '2', text: '2 Students' },
+      { value: '3', text: '3 Students' },
+      { value: '4', text: '4 Students' },
+      { value: '5', text: '5 Students' },
+      { value: '6', text: '6 Students' },
+      { value: '10', text: '10 Students' },
+      { value: '15', text: '15 Students' },
+      { value: '20', text: '20 Students' },
+      { value: '25', text: '25 Students' },
+      { value: '30', text: '30 Students (Standard Classroom)' },
+      { value: 'custom', text: 'Custom Student Count (up to 50)...' },
+    ];
+
+    const SETS_OPTIONS = [
+      { value: '1', text: '1 — Single Paper' },
+      { value: '2', text: '2 Sets (Set A, Set B)' },
+      { value: '3', text: '3 Sets (Set A, Set B, Set C)' },
+      { value: '4', text: '4 Sets (Set A, B, C, D)' },
+      { value: '5', text: '5 Sets (Set A, B, C, D, E)' },
+      { value: '6', text: '6 Sets (Set A, B, C, D, E, F)' },
+      { value: 'custom', text: 'Custom Sets (up to 10)...' },
+    ];
+
+    function updateGenModeUI() {
+      const mode = document.querySelector('input[name="gen-mode"]:checked')?.value || 'individual';
+      const hint = document.getElementById('sets-hint');
+      const roster = document.getElementById('roster-container');
+      const setsLabel = document.getElementById('sets-label');
+      const setsSelect = document.getElementById('sets-select');
+      const customInput = document.getElementById('custom-sets-input');
+
+      const currentVal = setsSelect ? setsSelect.value : '1';
+      const optionsList = mode === 'individual' ? INDIVIDUAL_OPTIONS : SETS_OPTIONS;
+
+      if (setsLabel) {
+        setsLabel.textContent = mode === 'individual' ? 'Number of Students / Papers' : 'Number of Question Paper Sets';
+      }
+
+      if (setsSelect) {
+        setsSelect.innerHTML = '';
+        optionsList.forEach(opt => {
+          const optionEl = document.createElement('option');
+          optionEl.value = opt.value;
+          optionEl.textContent = opt.text;
+          setsSelect.appendChild(optionEl);
+        });
+
+        // Restore previously selected value if valid in this mode
+        if (optionsList.some(o => o.value === currentVal)) {
+          setsSelect.value = currentVal;
+        } else {
+          setsSelect.value = '1';
+        }
+      }
+
+      if (mode === 'individual') {
+        hint.textContent = 'Every student receives a different question paper with unique problems and figures, following the exact same blueprint, total marks, and academic difficulty.';
+        if (roster) roster.style.display = 'block';
+        if (customInput) {
+          customInput.max = '50';
+          customInput.placeholder = 'Count (up to 50)';
+        }
+      } else {
+        hint.textContent = 'Each numbered set (Set A, B, C...) has the same marks, difficulty, syllabus coverage and pattern, but disjoint questions.';
+        if (roster) roster.style.display = 'none';
+        if (customInput) {
+          customInput.max = '10';
+          customInput.placeholder = 'Count (up to 10)';
+        }
+      }
+
+      onSetsSelectChange();
+    }
+
+    function onSetsSelectChange() {
+      const mode = document.querySelector('input[name="gen-mode"]:checked')?.value || 'individual';
+      const sel = document.getElementById('sets-select');
+      const customInput = document.getElementById('custom-sets-input');
+      if (sel && customInput) {
+        if (sel.value === 'custom') {
+          customInput.style.display = 'inline-block';
+          customInput.focus();
+        } else {
+          customInput.style.display = 'none';
+        }
+      }
+      const val = (sel && sel.value === 'custom' && customInput) ? (parseInt(customInput.value, 10) || 1) : (sel ? parseInt(sel.value, 10) : 1);
+      const hint = document.getElementById('sets-hint');
+      if (hint) {
+        hint.style.display = val > 1 ? 'block' : 'none';
+      }
+
+      const btnText = document.getElementById('btn-text');
+      if (btnText) {
+        if (val > 1) {
+          btnText.textContent = mode === 'individual' ? `Generate ${val} Individual Student Papers` : `Generate ${val} Question Paper Sets`;
+        } else {
+          btnText.textContent = 'Generate Question Paper';
+        }
+      }
+    }
+
+    function onCustomSetsInput() {
+      onSetsSelectChange();
+    }
+
+    function onRosterInput() {
+      const raw = (document.getElementById('roster-input')?.value || '').trim();
+      const badge = document.getElementById('roster-count-badge');
+      if (!raw) {
+        badge.textContent = '';
+        return;
+      }
+      const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+      badge.textContent = `✓ ${lines.length} student${lines.length === 1 ? '' : 's'} in roster (will generate ${lines.length} individualized papers)`;
+    }
 
     function hideSetsBar() {
       document.getElementById('sets-bar').style.display = 'none';
     }
 
     function setLabelOf(p, idx) {
+      if (p.student_name) {
+        return p.student_name + (p.roll_number ? ` (${p.roll_number})` : '');
+      }
+      if (p.set_label && p.set_label.startsWith('Student')) {
+        return p.set_label;
+      }
       return p.set_label || String.fromCharCode(65 + idx);
     }
 
@@ -2467,7 +2896,6 @@
       const warnEl = document.getElementById('sets-warning');
       if (!papers || papers.length < 2) {
         if (warnings && warnings.length) {
-          // a single remaining set still needs its warning shown
           bar.style.display = 'block';
           tabs.innerHTML = '';
           zips.innerHTML = '';
@@ -2478,20 +2906,24 @@
       }
       bar.style.display = 'block';
       tabs.innerHTML = '';
+      const isStudentBatch = papers.some(p => p.student_name || (p.set_label && p.set_label.startsWith('Student')));
       papers.forEach((p, idx) => {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'view-tab-btn' + (currentPaper && currentPaper.paper_id === p.paper_id ? ' active' : '');
         btn.dataset.paperId = p.paper_id;
-        btn.textContent = `Set ${setLabelOf(p, idx)}`;
+        const lbl = setLabelOf(p, idx);
+        btn.textContent = (isStudentBatch && !lbl.startsWith('Student') && !lbl.startsWith('Set')) ? `👤 ${lbl}` : (lbl.startsWith('Student') || lbl.startsWith('Set') ? lbl : `Set ${lbl}`);
         btn.addEventListener('click', () => selectSet(p.paper_id));
         tabs.appendChild(btn);
       });
       zips.innerHTML = '';
       if (batchId && papers.length > 1) {
+        const studentZipLabel = isStudentBatch ? '📥 All Student Papers (ZIP)' : 'All Sets · Student PDFs (ZIP)';
+        const teacherZipLabel = isStudentBatch ? '📥 All Teacher Solutions (ZIP)' : 'All Sets · Teacher PDFs (ZIP)';
         zips.innerHTML = `
-          <a href="/papers/batch/${encodeURIComponent(batchId)}/pdfs?include_answers=true" target="_blank" class="btn-pdf-action primary">All Sets · Teacher PDFs (ZIP)</a>
-          <a href="/papers/batch/${encodeURIComponent(batchId)}/pdfs?include_answers=false" target="_blank" class="btn-pdf-action outline">All Sets · Student PDFs (ZIP)</a>`;
+          <a href="/papers/batch/${encodeURIComponent(batchId)}/pdfs?include_answers=false" target="_blank" class="btn-pdf-action outline">${studentZipLabel}</a>
+          <a href="/papers/batch/${encodeURIComponent(batchId)}/pdfs?include_answers=true" target="_blank" class="btn-pdf-action primary">${teacherZipLabel}</a>`;
       }
       if (warnings && warnings.length) {
         warnEl.style.display = 'block';
@@ -2768,6 +3200,494 @@
       }
     }
 
+    // =========================================================================
+    // STUDENT PERFORMANCE & PERSONALIZED PRACTICE WORKSHEETS
+    // =========================================================================
+
+    let currentSimulatedProfiles = [];
+    let currentSelectedStudentIdx = 0;
+    let currentGeneratedWorksheets = [];
+    let currentSelectedWsIdx = 0;
+    let currentWsShowAnswers = false;
+
+    function switchMainFeatureTab(tab) {
+      const genWorkspace = document.getElementById('main-generator-workspace');
+      const wsWorkspace = document.getElementById('main-worksheets-workspace');
+      const tabGen = document.getElementById('tab-nav-generator');
+      const tabWs = document.getElementById('tab-nav-worksheets');
+
+      if (tab === 'generator') {
+        genWorkspace.style.display = '';
+        wsWorkspace.style.display = 'none';
+        tabGen.style.background = 'var(--brand-primary)';
+        tabGen.style.color = 'white';
+        tabGen.style.borderColor = 'var(--brand-primary)';
+        tabWs.style.background = 'var(--bg-surface)';
+        tabWs.style.color = 'var(--text-primary)';
+        tabWs.style.borderColor = 'var(--border-light)';
+      } else {
+        genWorkspace.style.display = 'none';
+        wsWorkspace.style.display = '';
+        tabWs.style.background = '#2563eb';
+        tabWs.style.color = 'white';
+        tabWs.style.borderColor = '#2563eb';
+        tabGen.style.background = 'var(--bg-surface)';
+        tabGen.style.color = 'var(--text-primary)';
+        tabGen.style.borderColor = 'var(--border-light)';
+
+        if (!currentSimulatedProfiles || currentSimulatedProfiles.length === 0) {
+          fetchSimulatedProfiles();
+          loadWorksheetHistory();
+        }
+      }
+    }
+
+    function switchWsRightTab(tab) {
+      const tabDash = document.getElementById('ws-tab-dashboard');
+      const tabSheet = document.getElementById('ws-tab-worksheet');
+      const tabHist = document.getElementById('ws-tab-history');
+      const btnDash = document.getElementById('ws-view-dash-btn');
+      const btnSheet = document.getElementById('ws-view-sheet-btn');
+      const btnHist = document.getElementById('ws-view-hist-btn');
+      const actions = document.getElementById('ws-action-buttons');
+
+      tabDash.style.display = tab === 'dashboard' ? 'block' : 'none';
+      tabSheet.style.display = tab === 'worksheet' ? 'block' : 'none';
+      tabHist.style.display = tab === 'history' ? 'block' : 'none';
+
+      btnDash.style.background = tab === 'dashboard' ? '#2563eb' : '';
+      btnDash.style.color = tab === 'dashboard' ? 'white' : '';
+      btnSheet.style.background = tab === 'worksheet' ? '#2563eb' : '';
+      btnSheet.style.color = tab === 'worksheet' ? 'white' : '';
+      btnHist.style.background = tab === 'history' ? '#2563eb' : '';
+      btnHist.style.color = tab === 'history' ? 'white' : '';
+
+      actions.style.display = (tab === 'worksheet' && currentGeneratedWorksheets.length > 0) ? 'flex' : 'none';
+
+      if (tab === 'history') {
+        loadWorksheetHistory();
+      }
+    }
+
+    function onWorksheetGradeChange() {
+      fetchSimulatedProfiles();
+    }
+
+    function onPerfModeChange() {
+      const mode = document.querySelector('input[name="ws-perf-mode"]:checked')?.value || 'simulated';
+      const simBox = document.getElementById('sim-controls');
+      const manBox = document.getElementById('manual-controls');
+      simBox.style.display = mode === 'simulated' ? 'block' : 'none';
+      manBox.style.display = mode === 'manual' ? 'block' : 'none';
+
+      if (mode === 'manual') {
+        renderManualTopicsEditor();
+      }
+    }
+
+    async function fetchSimulatedProfiles() {
+      const grade = document.getElementById('ws-grade-select')?.value || '5';
+      const title = document.getElementById('ws-assessment-title')?.value || 'Mid-Semester Diagnostic Assessment';
+      try {
+        const res = await fetch(`/worksheets/simulated-performance?grade=${grade}&count=3`);
+        if (!res.ok) throw new Error('Failed to fetch simulated profiles');
+        currentSimulatedProfiles = await res.json();
+        renderStudentPerformanceDashboard(0);
+      } catch (err) {
+        showToast('Failed to load performance profiles: ' + err.message, 'error');
+      }
+    }
+
+    function renderStudentPerformanceDashboard(idx) {
+      if (!currentSimulatedProfiles || currentSimulatedProfiles.length === 0) return;
+      currentSelectedStudentIdx = idx >= 0 && idx < currentSimulatedProfiles.length ? idx : 0;
+      const prof = currentSimulatedProfiles[currentSelectedStudentIdx];
+
+      // 1. Render student selector tabs
+      const tabsEl = document.getElementById('ws-student-tabs');
+      tabsEl.innerHTML = '';
+      currentSimulatedProfiles.forEach((p, i) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn-subtle';
+        btn.style.padding = '6px 14px';
+        btn.style.fontSize = '12px';
+        btn.style.fontWeight = '600';
+        btn.style.borderRadius = '20px';
+        btn.style.whiteSpace = 'nowrap';
+        if (i === currentSelectedStudentIdx) {
+          btn.style.background = '#2563eb';
+          btn.style.color = 'white';
+        } else {
+          btn.style.background = 'var(--bg-surface)';
+          btn.style.color = 'var(--text-secondary)';
+        }
+        btn.textContent = `👤 ${p.student_name} (${p.roll_number || '10' + (i+1)})`;
+        btn.onclick = () => renderStudentPerformanceDashboard(i);
+        tabsEl.appendChild(btn);
+      });
+
+      // 2. Active student info header
+      document.getElementById('ws-student-name').textContent = prof.student_name;
+      document.getElementById('ws-student-meta').textContent =
+        `Roll No: ${prof.roll_number || 'N/A'} | Class ${prof.grade} | ${prof.simulation_label || 'Performance Evaluation'}`;
+      document.getElementById('ws-overall-badge').textContent = `${prof.overall_percentage}%`;
+
+      // 3. Strengths vs Weaknesses
+      const strList = document.getElementById('ws-strengths-list');
+      const weakList = document.getElementById('ws-weakness-list');
+      strList.innerHTML = prof.strengths && prof.strengths.length
+        ? prof.strengths.map(s => `<span style="display: inline-block; background: #dcfce7; color: #15803d; padding: 2px 8px; border-radius: 4px; margin: 2px; font-weight: 600;">✓ ${escapeHtml(s)}</span>`).join('')
+        : '<em>No areas above 80% recorded</em>';
+      weakList.innerHTML = prof.areas_for_improvement && prof.areas_for_improvement.length
+        ? prof.areas_for_improvement.map(w => `<span style="display: inline-block; background: #fee2e2; color: #b91c1c; padding: 2px 8px; border-radius: 4px; margin: 2px; font-weight: 600;">⚠️ ${escapeHtml(w)}</span>`).join('')
+        : '<em>All topics at or above average mastery</em>';
+
+      // 4. Topic-Wise Progress Bars
+      const barsList = document.getElementById('ws-topic-bars-list');
+      barsList.innerHTML = '';
+      (prof.topic_scores || []).forEach(ts => {
+        let barColor = '#ef4444';
+        let catLabel = 'Weak (<40%)';
+        let targetText = '🎯 High Target (50% Allocation)';
+        if (ts.category === 'needs_improvement') {
+          barColor = '#f59e0b';
+          catLabel = 'Needs Improvement (40-59%)';
+          targetText = '🎯 Moderate Focus (30% Allocation)';
+        } else if (ts.category === 'average') {
+          barColor = '#3b82f6';
+          catLabel = 'Average (60-79%)';
+          targetText = 'Revision (15% Allocation)';
+        } else if (ts.category === 'strong') {
+          barColor = '#10b981';
+          catLabel = 'Strong (80-100%)';
+          targetText = 'Extension Challenge (5% Allocation)';
+        }
+
+        const row = document.createElement('div');
+        row.style.background = 'var(--bg-main)';
+        row.style.border = '1px solid var(--border-light)';
+        row.style.borderRadius = '6px';
+        row.style.padding = '8px 12px';
+
+        row.innerHTML = `
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <span style="font-weight: 600; font-size: 13px; color: var(--text-primary);">${escapeHtml(ts.topic)}</span>
+            <div style="font-size: 11px;">
+              <span style="font-weight: 700; color: ${barColor}; margin-right: 8px;">${ts.marks_obtained} / ${ts.max_marks} (${ts.percentage}%)</span>
+              <span style="background: ${barColor}20; color: ${barColor}; padding: 2px 6px; border-radius: 4px; font-weight: 600;">${catLabel}</span>
+            </div>
+          </div>
+          <div style="height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden; margin-bottom: 4px;">
+            <div style="width: ${Math.min(100, ts.percentage)}%; height: 100%; background: ${barColor}; transition: width 0.3s;"></div>
+          </div>
+          <div style="font-size: 10px; color: var(--text-muted); text-align: right;">${targetText}</div>
+        `;
+        barsList.appendChild(row);
+      });
+    }
+
+    function renderManualTopicsEditor() {
+      const prof = currentSimulatedProfiles[currentSelectedStudentIdx];
+      if (!prof) return;
+      const container = document.getElementById('manual-topics-table');
+      container.innerHTML = '';
+      (prof.topic_scores || []).forEach((ts, i) => {
+        const item = document.createElement('div');
+        item.style.display = 'flex';
+        item.style.alignItems = 'center';
+        item.style.gap = '8px';
+        item.style.fontSize = '12px';
+        item.innerHTML = `
+          <span style="flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(ts.topic)}</span>
+          <input type="number" min="0" max="20" step="0.5" value="${ts.marks_obtained}" style="width: 60px; padding: 2px 6px; border: 1px solid var(--border-light); border-radius: 4px;" onchange="onManualMarkChange(${i}, this.value)">
+          <span style="color: var(--text-muted);">/ 20</span>
+        `;
+        container.appendChild(item);
+      });
+    }
+
+    function onManualMarkChange(topicIdx, newVal) {
+      const prof = currentSimulatedProfiles[currentSelectedStudentIdx];
+      if (!prof || !prof.topic_scores[topicIdx]) return;
+      const score = Math.max(0, Math.min(20, parseFloat(newVal) || 0));
+      prof.topic_scores[topicIdx].marks_obtained = score;
+      prof.topic_scores[topicIdx].percentage = Math.round((score / 20) * 1000) / 10;
+      const pct = prof.topic_scores[topicIdx].percentage;
+      if (pct < 40) prof.topic_scores[topicIdx].category = 'weak';
+      else if (pct < 60) prof.topic_scores[topicIdx].category = 'needs_improvement';
+      else if (pct < 80) prof.topic_scores[topicIdx].category = 'average';
+      else prof.topic_scores[topicIdx].category = 'strong';
+
+      prof.is_simulated = false;
+      prof.simulation_label = 'Teacher Manual Entry';
+      renderStudentPerformanceDashboard(currentSelectedStudentIdx);
+    }
+
+    async function generateWorksheets() {
+      if (!currentSimulatedProfiles || currentSimulatedProfiles.length === 0) {
+        showToast('Please load student performance profiles first.', 'error');
+        return;
+      }
+      const grade = document.getElementById('ws-grade-select')?.value || '5';
+      const numQuestions = parseInt(document.getElementById('ws-qcount-input')?.value, 10) || 10;
+      const includeFigures = document.getElementById('ws-include-figures')?.checked ?? true;
+
+      const btn = document.getElementById('btn-ws-generate');
+      const btnText = document.getElementById('btn-ws-text');
+      const spinner = document.getElementById('btn-ws-spinner');
+
+      btn.disabled = true;
+      btnText.textContent = 'Generating Worksheets...';
+      spinner.style.display = 'inline-block';
+
+      try {
+        const payload = {
+          grade: grade,
+          subject: 'Mathematics',
+          num_questions: numQuestions,
+          include_figures: includeFigures,
+          student_profiles: currentSimulatedProfiles,
+        };
+
+        const res = await fetch('/worksheets/generate-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.detail || 'Worksheet generation failed');
+        }
+
+        const data = await res.json();
+        currentGeneratedWorksheets = data.worksheets || [];
+        showToast(`Successfully generated ${currentGeneratedWorksheets.length} personalized practice worksheets!`, 'success');
+
+        switchWsRightTab('worksheet');
+        renderGeneratedWorksheetsTabs();
+        renderGeneratedWorksheet(0, currentWsShowAnswers);
+        loadWorksheetHistory();
+      } catch (err) {
+        showToast('Generation error: ' + err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btnText.textContent = 'Generate Personalized Worksheets';
+        spinner.style.display = 'none';
+      }
+    }
+
+    function renderGeneratedWorksheetsTabs() {
+      const tabsEl = document.getElementById('ws-generated-tabs');
+      tabsEl.innerHTML = '';
+      currentGeneratedWorksheets.forEach((ws, i) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn-subtle';
+        btn.style.padding = '6px 14px';
+        btn.style.fontSize = '12px';
+        btn.style.fontWeight = '600';
+        btn.style.borderRadius = '20px';
+        btn.style.whiteSpace = 'nowrap';
+        if (i === currentSelectedWsIdx) {
+          btn.style.background = '#2563eb';
+          btn.style.color = 'white';
+        } else {
+          btn.style.background = 'var(--bg-surface)';
+          btn.style.color = 'var(--text-secondary)';
+        }
+        btn.textContent = `📄 ${ws.student_name} (${ws.roll_number || '10' + (i+1)})`;
+        btn.onclick = () => {
+          currentSelectedWsIdx = i;
+          renderGeneratedWorksheetsTabs();
+          renderGeneratedWorksheet(i, currentWsShowAnswers);
+        };
+        tabsEl.appendChild(btn);
+      });
+    }
+
+    function toggleWsAnswerMode(showAnswers) {
+      currentWsShowAnswers = showAnswers;
+      const btnStudent = document.getElementById('btn-ws-mode-student');
+      const btnTeacher = document.getElementById('btn-ws-mode-teacher');
+      if (showAnswers) {
+        btnTeacher.style.background = '#059669';
+        btnTeacher.style.color = 'white';
+        btnStudent.style.background = '';
+        btnStudent.style.color = '';
+      } else {
+        btnStudent.style.background = '#2563eb';
+        btnStudent.style.color = 'white';
+        btnTeacher.style.background = '';
+        btnTeacher.style.color = '';
+      }
+      renderGeneratedWorksheet(currentSelectedWsIdx, showAnswers);
+    }
+
+    function renderGeneratedWorksheet(idx, showAnswers) {
+      if (!currentGeneratedWorksheets || currentGeneratedWorksheets.length === 0) return;
+      currentSelectedWsIdx = idx >= 0 && idx < currentGeneratedWorksheets.length ? idx : 0;
+      const ws = currentGeneratedWorksheets[currentSelectedWsIdx];
+      const preview = document.getElementById('ws-preview-content');
+
+      const focusList = ws.focus_areas && ws.focus_areas.length
+        ? ws.focus_areas.join(', ')
+        : 'Curriculum reinforcement across foundational mathematics topics';
+
+      let qHtml = '';
+      (ws.questions || []).forEach((q, i) => {
+        let figHtml = '';
+        if (q.figure && q.figure.svg_content) {
+          figHtml = `<div style="text-align: center; margin: 10px 0; background: #fafafa; border: 1px solid #f1f5f9; border-radius: 4px; padding: 6px;">${q.figure.svg_content}</div>`;
+        }
+
+        let answerSpaceHtml = '';
+        if (showAnswers) {
+          answerSpaceHtml = `
+            <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 6px; padding: 8px 12px; margin-top: 8px;">
+              <div style="font-size: 11px; font-weight: 700; color: #166534; margin-bottom: 2px;">Correct Answer: <b>${escapeHtml(q.answer)}</b></div>
+              <div style="font-size: 11px; color: #065f46; font-style: italic;"><b>Working & Steps:</b> ${escapeHtml(q.solution || q.answer)}</div>
+            </div>
+          `;
+        } else {
+          answerSpaceHtml = `
+            <div style="margin-top: 10px; border-left: 2px solid #cbd5e1; padding-left: 8px;">
+              <div style="font-size: 10px; color: #94a3b8; margin-bottom: 14px;">(Show calculations & steps below)</div>
+              <div style="border-bottom: 1px dashed #cbd5e1; height: 18px; margin-bottom: 8px;"></div>
+              <div style="border-bottom: 1px dashed #cbd5e1; height: 18px; margin-bottom: 8px;"></div>
+              <div style="border-bottom: 1px dashed #cbd5e1; height: 18px;"></div>
+            </div>
+          `;
+        }
+
+        qHtml += `
+          <div style="margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid #f1f5f9;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <span style="font-weight: 700; font-size: 13px; color: #0f172a;">Q${i + 1}. [${escapeHtml(q.topic)}]</span>
+              <div>
+                <span style="font-size: 10px; background: #e0f2fe; color: #0369a1; padding: 2px 6px; border-radius: 4px; font-weight: 600; text-transform: uppercase;">${q.difficulty}</span>
+                <span style="font-size: 11px; font-weight: 700; color: #047857; margin-left: 6px;">[${q.marks} Mark${q.marks !== 1 ? 's' : ''}]</span>
+              </div>
+            </div>
+            <div style="font-size: 13px; color: #1e293b; line-height: 1.5;">${escapeHtml(q.question_text)}</div>
+            ${figHtml}
+            ${answerSpaceHtml}
+          </div>
+        `;
+      });
+
+      preview.innerHTML = `
+        <div style="border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 14px; text-align: center;">
+          <h2 style="margin: 0; font-size: 17px; font-weight: 800; color: #0f172a; letter-spacing: 0.5px;">QPGen — PERSONALIZED PRACTICE WORKSHEET</h2>
+          <div style="font-size: 12px; font-weight: 700; color: #475569; margin-top: 2px;">
+            ${showAnswers ? 'TEACHER ANSWER KEY & COMPLETE SOLUTIONS' : 'INDIVIDUALIZED MATHEMATICS REINFORCEMENT'}
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; font-size: 12px;">
+          <div><b>Student:</b> ${escapeHtml(ws.student_name)} (Roll: ${escapeHtml(ws.roll_number || 'N/A')})</div>
+          <div><b>Class:</b> Class ${ws.grade} | <b>Subject:</b> ${ws.subject}</div>
+          <div><b>Assessment Reference:</b> ${escapeHtml(ws.assessment_reference || 'Diagnostic Assessment')}</div>
+          <div><b>Total Questions:</b> ${ws.questions.length} (${ws.total_marks} Marks)</div>
+        </div>
+
+        <div style="background: #eff6ff; border: 1px solid #93c5fd; border-radius: 6px; padding: 8px 12px; margin-bottom: 16px; font-size: 12px; color: #1e3a8a;">
+          <b>🎯 Personalized Focus Topics:</b> <i>${escapeHtml(focusList)}</i>
+        </div>
+
+        <div>
+          ${qHtml}
+        </div>
+      `;
+    }
+
+    function downloadCurrentWsPdf(includeAnswers) {
+      if (!currentGeneratedWorksheets || currentGeneratedWorksheets.length === 0) return;
+      const ws = currentGeneratedWorksheets[currentSelectedWsIdx];
+      if (!ws) return;
+      window.open(`/worksheets/${ws.worksheet_id}/pdf?include_answers=${includeAnswers}`, '_blank');
+    }
+
+    async function downloadAllWsZip(includeAnswers) {
+      if (!currentGeneratedWorksheets || currentGeneratedWorksheets.length === 0) return;
+      const ids = currentGeneratedWorksheets.map(w => w.worksheet_id);
+      try {
+        const res = await fetch('/worksheets/batch-zip', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ worksheet_ids: ids, include_answers: includeAnswers }),
+        });
+        if (!res.ok) throw new Error('ZIP download failed');
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Personalized_Worksheets_${includeAnswers ? 'solutions' : 'students'}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      } catch (err) {
+        showToast('Error downloading ZIP: ' + err.message, 'error');
+      }
+    }
+
+    async function loadWorksheetHistory() {
+      try {
+        const res = await fetch('/worksheets');
+        if (!res.ok) return;
+        const list = await res.json();
+        const countEl = document.getElementById('ws-history-count');
+        if (countEl) countEl.textContent = list.length;
+
+        const container = document.getElementById('ws-history-table-container');
+        if (!list || list.length === 0) {
+          container.innerHTML = '<p style="font-size: 12px; color: var(--text-muted); text-align: center; padding: 20px;">No worksheets saved yet.</p>';
+          return;
+        }
+
+        let rowsHtml = '';
+        list.forEach(w => {
+          const focusStr = (w.focus_areas && w.focus_areas.length) ? w.focus_areas.join(', ') : 'Curriculum practice';
+          const dateStr = w.created_at ? new Date(w.created_at).toLocaleDateString() : '';
+          rowsHtml += `
+            <tr style="border-bottom: 1px solid var(--border-light); font-size: 12px;">
+              <td style="padding: 8px 10px; font-weight: 600;">${escapeHtml(w.student_name)}</td>
+              <td style="padding: 8px 10px;">${escapeHtml(w.roll_number || '—')}</td>
+              <td style="padding: 8px 10px;">Class ${w.grade}</td>
+              <td style="padding: 8px 10px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(focusStr)}</td>
+              <td style="padding: 8px 10px; color: var(--text-muted);">${dateStr}</td>
+              <td style="padding: 8px 10px; text-align: right;">
+                <a href="/worksheets/${w.worksheet_id}/pdf?include_answers=false" target="_blank" style="color: #2563eb; font-weight: 600; text-decoration: none; margin-right: 8px;">Sheet PDF</a>
+                <a href="/worksheets/${w.worksheet_id}/pdf?include_answers=true" target="_blank" style="color: #059669; font-weight: 600; text-decoration: none;">Key PDF</a>
+              </td>
+            </tr>
+          `;
+        });
+
+        container.innerHTML = `
+          <table style="width: 100%; border-collapse: collapse; text-align: left;">
+            <thead>
+              <tr style="border-bottom: 2px solid var(--border-light); font-size: 12px; color: var(--text-muted);">
+                <th style="padding: 6px 10px;">Student</th>
+                <th style="padding: 6px 10px;">Roll No</th>
+                <th style="padding: 6px 10px;">Class</th>
+                <th style="padding: 6px 10px;">Focus Areas</th>
+                <th style="padding: 6px 10px;">Date</th>
+                <th style="padding: 6px 10px; text-align: right;">Downloads</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+        `;
+      } catch (err) {
+        console.debug('History load error:', err);
+      }
+    }
+
     // -------------------------------------------------------------------------
     // Authentication & Administrator Controls
     // -------------------------------------------------------------------------
@@ -2810,6 +3730,7 @@
     checkAuthAndLoadProfile();
     loadCurriculumStatus();
     loadPapers();
+    updateGenModeUI();
   </script>
 </body>
 </html>

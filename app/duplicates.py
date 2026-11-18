@@ -10,9 +10,11 @@ from typing import Optional, Union
 from app.schemas import (
     Question,
     QuestionType,
+    Difficulty,
     ExamBlueprint,
     PaperSection,
     MathCheckStatus,
+    MathVerificationResult,
 )
 
 
@@ -362,6 +364,19 @@ def is_duplicate(
         if q_id and ex_id and q_id == ex_id:
             return True, f"Identical question_id '{q_id}'."
 
+        # Figure comparison check:
+        # If both questions are figure-based, their identity is defined by the diagram and answer.
+        # Different diagrams with different answers are distinct visual math questions.
+        fk_q = _get_fig_key(question) if isinstance(question, Question) else None
+        fk_ex = _get_fig_key(ex) if isinstance(ex, Question) else None
+        if fk_q and fk_ex:
+            if fk_q == fk_ex:
+                return True, "Identical figure diagram parameters."
+            ans_q = str(getattr(question, "answer", "")).strip().lower()
+            ans_ex = str(getattr(ex, "answer", "")).strip().lower()
+            if ans_q and ans_ex and ans_q != ans_ex:
+                continue
+
         norm_ex = normalize_question_text(ex_text)
         if norm_q == norm_ex:
             return True, f"Exact normalized text match with existing question '{ex_text}'."
@@ -426,13 +441,15 @@ def is_duplicate(
             q_ch_clean = re.sub(r'^(?:Lesson|Chapter|Unit)\s*\d+[:\s\-]*', '', question.chapter, flags=re.IGNORECASE).strip().lower()
             ex_ch_clean = re.sub(r'^(?:Lesson|Chapter|Unit)\s*\d+[:\s\-]*', '', ex.chapter, flags=re.IGNORECASE).strip().lower()
             if q_ch_clean and q_ch_clean == ex_ch_clean:
-                c1 = get_content_tokens(q_text)
-                c2 = get_content_tokens(ex_text)
-                if c1 and c2:
-                    c_sim = _token_jaccard(c1, c2)
-                    thresh = 0.50 if question.question_type == ex.question_type else 0.35
-                    if c_sim >= thresh:
-                        return True, f"Both questions test substantially the same concept from '{question.chapter}' (overlap {c_sim:.2f}): '{ex_text[:60]}...'"
+                # If both questions have different numbers, they are distinct calculations
+                if not (nums_q and nums_ex and nums_q != nums_ex):
+                    c1 = get_content_tokens(q_text)
+                    c2 = get_content_tokens(ex_text)
+                    if c1 and c2:
+                        c_sim = _token_jaccard(c1, c2)
+                        thresh = 0.50 if question.question_type == ex.question_type else 0.35
+                        if c_sim >= thresh:
+                            return True, f"Both questions test substantially the same concept from '{question.chapter}' (overlap {c_sim:.2f}): '{ex_text[:60]}...'"
 
         # 6. If both are MCQs, check if options and answers match
         if isinstance(question, Question) and isinstance(ex, Question):
@@ -472,6 +489,65 @@ def deduplicate_candidates(
     return unique, rejected_count
 
 
+def _get_fig_key(q: Question) -> Optional[str]:
+    """Extract a canonical figure key ignoring ephemeral variation index."""
+    if not (getattr(q, "figure", None) and getattr(q.figure, "parameters", None)):
+        return None
+    core_params = {
+        k: v for k, v in q.figure.parameters.items()
+        if k not in ("variation", "variation_index")
+    }
+    return f"{q.figure.figure_type}:{sorted(str(k) + '=' + str(v) for k, v in core_params.items())}"
+
+
+def _is_fig_duplicate(q: Question, chosen_fig_keys: set[str]) -> bool:
+    """Check if question has a figure with parameters already used."""
+    fk = _get_fig_key(q)
+    return (fk is not None) and (fk in chosen_fig_keys)
+
+
+def _is_math_duplicate(q1: Question, q2: Question) -> tuple[bool, Optional[str]]:
+    """
+    Check if two questions are identical or duplicate mathematical problems.
+    Returns (True, reason) if they are duplicates, else (False, None).
+    """
+    # 1. Exact ID
+    if q1.question_id and q2.question_id and q1.question_id == q2.question_id:
+        return True, "Identical question_id."
+
+    # 2. Figure comparison
+    fk1 = _get_fig_key(q1)
+    fk2 = _get_fig_key(q2)
+    if fk1 and fk2:
+        if fk1 == fk2:
+            return True, "Identical figure diagram parameters."
+        ans1 = str(getattr(q1, "answer", "")).strip().lower()
+        ans2 = str(getattr(q2, "answer", "")).strip().lower()
+        if ans1 and ans2 and ans1 != ans2:
+            return False, None
+
+    # 3. Exact normalized text
+    norm1 = normalize_question_text(q1.question_text)
+    norm2 = normalize_question_text(q2.question_text)
+    if norm1 == norm2:
+        return True, "Identical question text."
+
+    # 4. Identical arithmetic operation with identical numbers
+    nums1 = set(re.findall(r"\b\d+\b", q1.question_text))
+    nums2 = set(re.findall(r"\b\d+\b", q2.question_text))
+    op1 = get_arith_op(q1.question_text)
+    op2 = get_arith_op(q2.question_text)
+    if op1 and op1 == op2 and nums1 and nums1 == nums2:
+        return True, f"Identical arithmetic calculation ({op1} on {nums1})."
+
+    # 5. Near-identical text with identical numbers
+    sim = calculate_similarity(q1.question_text, q2.question_text)
+    if sim >= 0.85 and (nums1 == nums2 or not nums1):
+        return True, f"High textual similarity ({sim:.2f}) with same values."
+
+    return False, None
+
+
 def select_version_questions(
     candidate_pool: list[Question],
     blueprint: ExamBlueprint,
@@ -480,6 +556,8 @@ def select_version_questions(
     """
     Select questions from candidate_pool without replacement across versions.
     Each version must strictly fulfill the blueprint sections, question counts, and marks.
+    Guarantees cross-version and intra-version uniqueness: no duplicate questions,
+    no identical arithmetic calculations, and no identical figures.
 
     Returns:
         versions_questions: list of list of Question (one list per version)
@@ -499,17 +577,20 @@ def select_version_questions(
     for q in valid_pool:
         pool_by_type.setdefault(q.question_type, []).append(q)
 
-    # 3. For each section in blueprint, verify total available count across num_versions
-    # and select disjoint subsets for each version
+    # 3. For each section in blueprint, select disjoint, non-duplicate subsets for each version
     version_sections_map: list[list[PaperSection]] = [[] for _ in range(num_versions)]
     used_q_ids: set[str] = set()
+    all_chosen_questions: list[Question] = []
+    all_chosen_fig_keys: set[str] = set()
 
     for sec in blueprint.sections:
         needed_per_version = sec.num_questions
         total_needed = needed_per_version * num_versions
         target_marks_dist = sec.get_marks_distribution()
+        fig_alloc = getattr(sec, "figure_allocation", None) or [False] * needed_per_version
+        ch_alloc = getattr(sec, "chapter_allocation", None) or []
 
-        # Candidates matching question type
+        # Available candidates of this question type
         avail = [q for q in pool_by_type.get(sec.question_type, []) if q.question_id not in used_q_ids]
 
         if len(avail) < total_needed:
@@ -528,35 +609,114 @@ def select_version_questions(
 
             for i in range(needed_per_version):
                 target_mark = target_marks_dist[i]
-                # Look for candidate with matching mark first
+                is_fig_slot = fig_alloc[i] if i < len(fig_alloc) else False
+                ch = ch_alloc[i] if i < len(ch_alloc) else "Mathematics"
+
+                chosen = None
                 candidate_idx = None
-                for idx, cand in enumerate(avail):
-                    if cand.question_id not in used_q_ids and cand.marks == target_mark:
-                        candidate_idx = idx
-                        break
 
-                # If no exact mark match, take any available candidate of this section type
-                if candidate_idx is None:
+                # Figure slot selection
+                if is_fig_slot:
+                    # 1. Search avail for a non-duplicate figure candidate
                     for idx, cand in enumerate(avail):
-                        if cand.question_id not in used_q_ids:
-                            candidate_idx = idx
-                            break
+                        if cand.question_id not in used_q_ids and (cand.question_subtype == "figure_based" or getattr(cand, "figure", None)):
+                            if not _is_fig_duplicate(cand, all_chosen_fig_keys):
+                                is_dup = any(_is_math_duplicate(cand, ex)[0] for ex in (all_chosen_questions + selected_for_version))
+                                if not is_dup:
+                                    candidate_idx = idx
+                                    break
+                    if candidate_idx is not None:
+                        chosen = avail.pop(candidate_idx)
+                    else:
+                        # 2. Dynamic figure variation generation to guarantee distinct figures across students
+                        from app.figures import create_figure_question
+                        effective_class = getattr(sec, "grade", None) or blueprint.grade or "Class 1"
+                        sec_diff = sec.difficulty or Difficulty.MEDIUM
+                        for attempt in range(25):
+                            var_idx = (v_idx * 15) + i + attempt + 1
+                            cand_fig = create_figure_question(
+                                grade=effective_class,
+                                chapter=ch,
+                                question_type=sec.question_type,
+                                marks=target_mark,
+                                difficulty=sec_diff,
+                                variation_index=var_idx,
+                            )
+                            if cand_fig:
+                                if not _is_fig_duplicate(cand_fig, all_chosen_fig_keys):
+                                    is_d = any(_is_math_duplicate(cand_fig, ex)[0] for ex in (all_chosen_questions + selected_for_version))
+                                    if not is_d:
+                                        import uuid
+                                        cand_fig.question_id = uuid.uuid4().hex[:10]
+                                        cand_fig.marks = target_mark
+                                        chosen = cand_fig
+                                        break
+                else:
+                    # Non-figure slot:
+                    # 1. Look for candidate matching target mark with no math duplication
+                    for idx, cand in enumerate(avail):
+                        if cand.question_id not in used_q_ids and cand.question_subtype != "figure_based" and cand.marks == target_mark:
+                            is_dup = any(_is_math_duplicate(cand, ex)[0] for ex in (all_chosen_questions + selected_for_version))
+                            if not is_dup:
+                                candidate_idx = idx
+                                break
 
-                if candidate_idx is None:
+                    # 2. Look for any candidate without math duplication
+                    if candidate_idx is None:
+                        for idx, cand in enumerate(avail):
+                            if cand.question_id not in used_q_ids and cand.question_subtype != "figure_based":
+                                is_dup = any(_is_math_duplicate(cand, ex)[0] for ex in (all_chosen_questions + selected_for_version))
+                                if not is_dup:
+                                    candidate_idx = idx
+                                    break
+
+                    if candidate_idx is not None:
+                        chosen = avail.pop(candidate_idx)
+                    else:
+                        # 3. Dynamic numerical variation generation
+                        from app.generator import generate_numerical_variation
+                        for base_cand in avail:
+                            if base_cand.question_subtype != "figure_based":
+                                for var_i in range(1, 15):
+                                    var_q = generate_numerical_variation(base_cand, variation_index=(v_idx * 11) + i + var_i)
+                                    if var_q and var_q.math_verification and var_q.math_verification.status != MathCheckStatus.DISCREPANCY:
+                                        is_d = any(_is_math_duplicate(var_q, ex)[0] for ex in (all_chosen_questions + selected_for_version))
+                                        if not is_d:
+                                            import uuid
+                                            var_q.question_id = uuid.uuid4().hex[:10]
+                                            var_q.marks = target_mark
+                                            chosen = var_q
+                                            break
+                            if chosen is not None:
+                                break
+
+                        # 4. Fallback to any remaining candidate in avail if test pool is pre-constrained
+                        if chosen is None:
+                            for idx, cand in enumerate(avail):
+                                if cand.question_id not in used_q_ids:
+                                    candidate_idx = idx
+                                    break
+                            if candidate_idx is not None:
+                                chosen = avail.pop(candidate_idx)
+
+                if chosen is None:
                     raise CandidatePoolShortageError(
                         f"Candidate pool shortage for section '{sec.section_id}'. "
-                        f"Cannot select {needed_per_version} questions for version {v_idx + 1}.",
+                        f"Cannot select {needed_per_version} unique questions for version {v_idx + 1}.",
                         section_id=sec.section_id,
                         needed=total_needed,
                         available=len(selected_for_version),
                     )
 
-                chosen = avail.pop(candidate_idx)
                 # Ensure mark matches blueprint section mark
                 if chosen.marks != target_mark:
                     chosen = chosen.model_copy(update={"marks": target_mark})
 
                 used_q_ids.add(chosen.question_id)
+                all_chosen_questions.append(chosen)
+                fk = _get_fig_key(chosen)
+                if fk:
+                    all_chosen_fig_keys.add(fk)
                 selected_for_version.append(chosen)
 
             paper_sec = PaperSection(
@@ -578,3 +738,59 @@ def select_version_questions(
         versions_questions.append(v_qs)
 
     return versions_questions, version_sections_map
+
+
+def validate_batch_papers_uniqueness(papers: list) -> tuple[bool, list[str]]:
+    """
+    Cross-checks all questions across all papers in a batch to ensure
+    no duplicate questions or duplicate figures are shared between students.
+    Returns (is_unique, violations).
+    """
+    violations: list[str] = []
+    seen_q_ids: dict[str, str] = {}
+    seen_q_texts: dict[str, str] = {}
+    seen_fig_keys: dict[str, str] = {}
+
+    for p in papers:
+        p_label = getattr(p, "student_name", None) or getattr(p, "set_label", None) or f"Version {p.version_number}"
+        for q_idx, q in enumerate(p.questions):
+            # Check question_id
+            if q.question_id in seen_q_ids:
+                violations.append(
+                    f"Question ID '{q.question_id}' is duplicated between {seen_q_ids[q.question_id]} and {p_label}."
+                )
+            seen_q_ids[q.question_id] = f"{p_label} (Q{q_idx + 1})"
+
+            # Check normalized question text
+            norm = normalize_question_text(q.question_text)
+            if norm in seen_q_texts:
+                violations.append(
+                    f"Identical question text '{q.question_text[:60]}...' shared between {seen_q_texts[norm]} and {p_label} (Q{q_idx + 1})."
+                )
+            seen_q_texts[norm] = f"{p_label} (Q{q_idx + 1})"
+
+            # Check figure uniqueness if figure is present
+            fk = _get_fig_key(q)
+            if fk:
+                if fk in seen_fig_keys:
+                    violations.append(
+                        f"Identical figure parameters shared between {seen_fig_keys[fk]} and {p_label} (Q{q_idx + 1})."
+                    )
+                seen_fig_keys[fk] = f"{p_label} (Q{q_idx + 1})"
+
+    # Pairwise cross-paper similarity check
+    for i in range(len(papers)):
+        p1 = papers[i]
+        lbl1 = getattr(p1, "student_name", None) or getattr(p1, "set_label", None) or f"Version {p1.version_number}"
+        for j in range(i + 1, len(papers)):
+            p2 = papers[j]
+            lbl2 = getattr(p2, "student_name", None) or getattr(p2, "set_label", None) or f"Version {p2.version_number}"
+            for qa in p1.questions:
+                for qb in p2.questions:
+                    is_d, reason = _is_math_duplicate(qa, qb)
+                    if is_d:
+                        violations.append(
+                            f"Duplicate question shared between {lbl1} and {lbl2}: {reason}"
+                        )
+
+    return (len(violations) == 0, violations)

@@ -474,11 +474,11 @@ def render_angle_diagram_svg(angle_degrees: int = 120, label: str = "A") -> str:
 # 7. Counting & Spatial Relationships SVG (Class 1 & 2)
 # ---------------------------------------------------------------------------
 
-def render_counting_spatial_svg(inside_count: int = 4, outside_count: int = 2) -> str:
-    """Renders objects inside and outside a clearly defined circular boundary for Class 1."""
-    svg_w = 260
-    svg_h = 130
-    cx, cy, r = 100, 65, 50
+def render_counting_spatial_svg(inside_count: int = 4, outside_count: int = 2, token_type: str = "star") -> str:
+    """Renders objects inside and outside a clearly defined boundary for Class 1 & 2."""
+    svg_w = 270
+    svg_h = 135
+    cx, cy, r = 100, 68, 50
 
     elements = [
         f'<svg width="{svg_w}" height="{svg_h}" viewBox="0 0 {svg_w} {svg_h}" xmlns="http://www.w3.org/2000/svg" style="background:#ffffff; font-family:Arial, sans-serif;">',
@@ -486,18 +486,95 @@ def render_counting_spatial_svg(inside_count: int = 4, outside_count: int = 2) -
         f'<text x="{cx}" y="{cy - r - 6}" font-size="11" font-weight="bold" fill="#1e3a8a" text-anchor="middle">Inside</text>',
     ]
 
-    # Stars inside
-    inside_positions = [(80, 50), (120, 50), (80, 80), (120, 80), (100, 65)]
+    # Pre-calculated non-overlapping positions inside circle (r=50)
+    inside_positions = [
+        (80, 50), (120, 50), (80, 85), (120, 85), (100, 68),
+        (100, 45), (75, 68), (125, 68), (100, 92)
+    ]
     for i in range(min(inside_count, len(inside_positions))):
         px, py = inside_positions[i]
-        elements.append(_star_polygon(px, py, 7.5))
+        if token_type == "circle":
+            elements.append(_circle_item(px, py, 6.5, filled=True))
+        else:
+            elements.append(_star_polygon(px, py, 7.5))
 
-    # Stars outside
-    outside_positions = [(190, 45), (210, 85), (225, 45)]
+    # Pre-calculated positions outside circle
+    outside_positions = [
+        (185, 45), (215, 85), (235, 45), (185, 90), (235, 90)
+    ]
     for i in range(min(outside_count, len(outside_positions))):
         px, py = outside_positions[i]
-        elements.append(_star_polygon(px, py, 7.5))
+        if token_type == "circle":
+            elements.append(_circle_item(px, py, 6.5, filled=True))
+        else:
+            elements.append(_star_polygon(px, py, 7.5))
     elements.append(f'<text x="210" y="24" font-size="11" font-weight="bold" fill="#475569" text-anchor="middle">Outside</text>')
+
+    elements.append("</svg>")
+    return "\n".join(elements)
+
+
+def render_visual_addition_svg(count_left: int = 3, count_right: int = 2, token_type: str = "star") -> str:
+    """Renders two boxes of countable objects with a '+' sign for Class 1 & 2 addition."""
+    svg_w = 340
+    svg_h = 75
+    box_w = 110
+    box_h = 44
+    star_r = 7.0
+    spacing = 20
+
+    elements = [
+        f'<svg width="{svg_w}" height="{svg_h}" viewBox="0 0 {svg_w} {svg_h}" xmlns="http://www.w3.org/2000/svg" style="background:#ffffff; font-family:Arial, sans-serif;">'
+    ]
+
+    # Box 1
+    elements.append(f'<rect x="15" y="15" width="{box_w}" height="{box_h}" fill="#f8fafc" stroke="#1e3a8a" stroke-width="1.5" rx="3"/>')
+    for i in range(count_left):
+        ix = 25 + i * spacing
+        iy = 15 + box_h / 2
+        elements.append(_star_polygon(ix, iy, star_r) if token_type == "star" else _circle_item(ix, iy, star_r - 1.5, filled=True))
+
+    # Plus sign
+    elements.append('<text x="145" y="44" font-size="22" font-weight="bold" fill="#0f172a" text-anchor="middle">+</text>')
+
+    # Box 2
+    elements.append(f'<rect x="165" y="15" width="{box_w}" height="{box_h}" fill="#f8fafc" stroke="#1e3a8a" stroke-width="1.5" rx="3"/>')
+    for i in range(count_right):
+        ix = 175 + i * spacing
+        iy = 15 + box_h / 2
+        elements.append(_star_polygon(ix, iy, star_r) if token_type == "star" else _circle_item(ix, iy, star_r - 1.5, filled=True))
+
+    # Equals box
+    elements.append('<text x="295" y="44" font-size="20" font-weight="bold" fill="#0f172a" text-anchor="middle">=</text>')
+    elements.append('<rect x="310" y="20" width="24" height="34" fill="#ffffff" stroke="#94a3b8" stroke-width="1.2" stroke-dasharray="2,2"/>')
+
+    elements.append("</svg>")
+    return "\n".join(elements)
+
+
+def render_object_grid_counting_svg(count: int = 5, token_type: str = "star") -> str:
+    """Renders a grid/ten-frame of countable items for Class 1 numbers and counting."""
+    total_slots = max(10, count + 2)
+    cols = 5
+    rows = math.ceil(total_slots / cols)
+    cell_size = 28
+    svg_w = 40 + cols * cell_size
+    svg_h = 30 + rows * cell_size
+
+    elements = [
+        f'<svg width="{svg_w}" height="{svg_h}" viewBox="0 0 {svg_w} {svg_h}" xmlns="http://www.w3.org/2000/svg" style="background:#ffffff; font-family:Arial, sans-serif;">',
+        f'<rect x="20" y="15" width="{cols * cell_size}" height="{rows * cell_size}" fill="#f8fafc" stroke="#0f172a" stroke-width="1.5"/>',
+    ]
+    for r in range(rows):
+        for c in range(cols):
+            x = 20 + c * cell_size
+            y = 15 + r * cell_size
+            elements.append(f'<rect x="{x}" y="{y}" width="{cell_size}" height="{cell_size}" fill="none" stroke="#cbd5e1" stroke-width="1"/>')
+            item_idx = r * cols + c
+            if item_idx < count:
+                cx = x + cell_size / 2
+                cy = y + cell_size / 2
+                elements.append(_star_polygon(cx, cy, 7.0) if token_type == "star" else _circle_item(cx, cy, 6.0, filled=True))
 
     elements.append("</svg>")
     return "\n".join(elements)
@@ -696,6 +773,19 @@ def render_figure_from_spec(spec: dict, grade: int | str = 3) -> Optional[Figure
             svg = render_shape_properties_svg(shape=sh, labels=lbls)
             return FigureData(figure_type="shape_properties", title=f"Geometrical Shape ({sh.title()})", svg_content=svg, parameters=params)
 
+        elif ftype in ("visual_addition", "addition_visual", "addition"):
+            cl = int(params.get("count_left", params.get("left", 3)))
+            cr = int(params.get("count_right", params.get("right", 2)))
+            stype = str(params.get("token_type", params.get("token", "star")))
+            svg = render_visual_addition_svg(count_left=cl, count_right=cr, token_type=stype)
+            return FigureData(figure_type="visual_addition", title=f"Visual Addition ({cl} + {cr})", svg_content=svg, parameters=params)
+
+        elif ftype in ("object_grid_counting", "grid_counting", "object_counting"):
+            cnt = int(params.get("count", 5))
+            stype = str(params.get("token_type", params.get("token", "star")))
+            svg = render_object_grid_counting_svg(count=cnt, token_type=stype)
+            return FigureData(figure_type="object_grid_counting", title=f"Object Grid Counting ({cnt})", svg_content=svg, parameters=params)
+
         elif ftype in ("pattern_sequence", "patterns", "pattern"):
             shs = params.get("shapes", ["circle", "square", "triangle", "circle", "square"])
             svg = render_pattern_sequence_svg(shapes=shs)
@@ -755,10 +845,13 @@ def create_figure_question(
     question_type: QuestionType = QuestionType.MULTIPLE_CHOICE,
     marks: int = 1,
     difficulty: Difficulty = Difficulty.MEDIUM,
+    variation_index: int = 0,
 ) -> Optional[Question]:
     """
     Create an original, syllabus-aligned, mathematically verified figure-based question
-    calibrated to the selected grade, chapter, marks, and difficulty level.
+    calibrated to the selected grade, chapter, marks, difficulty level, and variation index.
+    The variation_index ensures that distinct student papers receive genuinely different figures,
+    numerical dimensions, and problems while maintaining exact equivalence in academic difficulty.
     """
     from app.curriculum import parse_grade_number
 
@@ -766,24 +859,258 @@ def create_figure_question(
     ch_clean = chapter.lower()
 
     # -----------------------------------------------------------------------
-    # Pattern 7: Counting & Spatial Relations (Strictly for Class 1 & 2)
-    # Class 1 MUST receive only age-appropriate simple visual problems
+    # Pattern 7A: 2D Geometrical Shapes & Solids for Class 1 & 2 (Solids Around Us)
     # -----------------------------------------------------------------------
-    if g_num <= 1 or (g_num == 2 and any(k in ch_clean for k in ("spatial", "space", "count", "digits"))):
-        in_c = 4 if difficulty == Difficulty.MEDIUM else (3 if difficulty == Difficulty.EASY else 5)
-        out_c = 2
-        svg_content = render_counting_spatial_svg(inside_count=in_c, outside_count=out_c)
+    if g_num <= 2 and any(k in ch_clean for k in ("solid", "solids", "around us", "shape", "shapes", "geometry", "flat", "round")):
+        shape_configs = [
+            ("triangle", 3, "Triangle", "3 straight sides and 3 corners"),
+            ("square", 4, "Square", "4 equal straight sides and 4 corners"),
+            ("rectangle", 4, "Rectangle", "4 straight sides and 4 corners"),
+            ("circle", 0, "Circle", "1 curved boundary and no corners"),
+        ]
+        sh_idx = (variation_index + (variation_index // 3)) % len(shape_configs)
+        sh_key, num_sides, sh_name, sh_desc = shape_configs[sh_idx]
+        svg_content = render_shape_properties_svg(shape=sh_key)
 
+        ask_mode = variation_index % 3
+        v_phrase_idx = (variation_index // 3) % 4
+
+        if ask_mode == 0:
+            prompt_variants_id = [
+                "Identify the 2D geometric shape shown in the figure:",
+                "What is the name of the geometric shape illustrated in the diagram?",
+                "Observe the geometric figure below and write its name:",
+                "Which 2D geometric shape is depicted in the figure?",
+            ]
+            q_text = prompt_variants_id[v_phrase_idx]
+            ans = sh_name
+            sol = f"The figure shows a {sh_name}, which has {sh_desc}."
+            if question_type == QuestionType.MULTIPLE_CHOICE:
+                opts = ["Triangle", "Square", "Rectangle", "Circle"]
+                if sh_name in opts:
+                    r_idx = variation_index % len(opts)
+                    options = opts[r_idx:] + opts[:r_idx]
+                else:
+                    options = opts
+                correct_opt = ans
+            else:
+                options = None
+                correct_opt = None
+            expr_val = str(num_sides)
+        elif ask_mode == 1:
+            prompt_variants_sides = [
+                f"Count how many straight sides the shape shown in the figure has:",
+                f"How many straight sides does the geometric shape in the figure have?",
+                f"Observe the given shape. Write the total number of straight sides:",
+                f"Count the edges (straight sides) of the shape shown below:",
+            ]
+            q_text = prompt_variants_sides[v_phrase_idx]
+            ans = str(num_sides)
+            sol = f"A {sh_name} has {num_sides} straight sides and {3 if num_sides == 3 else (4 if num_sides == 4 else 0)} corners."
+            if question_type == QuestionType.MULTIPLE_CHOICE:
+                options = ["0", "3", "4", "5"]
+                correct_opt = ans
+            else:
+                options = None
+                correct_opt = None
+            expr_val = str(num_sides)
+        else:
+            num_corners = 3 if num_sides == 3 else (4 if num_sides == 4 else 0)
+            prompt_variants_corners = [
+                f"Count how many corners (vertices) the shape shown in the figure has:",
+                f"How many corners does the geometric shape shown below have?",
+                f"Write the number of corners (vertices) of the shape depicted in the figure:",
+                f"Observe the shape in the diagram. How many corners can you count?",
+            ]
+            q_text = prompt_variants_corners[v_phrase_idx]
+            ans = str(num_corners)
+            sol = f"A {sh_name} has {num_corners} corners (vertices) and {num_sides} straight sides."
+            if question_type == QuestionType.MULTIPLE_CHOICE:
+                options = ["0", "3", "4", "5"]
+                correct_opt = ans
+            else:
+                options = None
+                correct_opt = None
+            expr_val = str(num_corners)
+
+        return Question(
+            question_text=q_text,
+            question_type=question_type,
+            marks=marks,
+            difficulty=difficulty,
+            grade=f"Class {g_num}",
+            chapter=chapter,
+            topic=chapter,
+            options=options,
+            correct_option=correct_opt,
+            answer=ans,
+            solution=sol,
+            question_subtype="figure_based",
+            figure=FigureData(
+                figure_type="shape_properties",
+                title=f"2D Shape: {sh_name}",
+                svg_content=svg_content,
+                parameters={"shape": sh_key, "sides": num_sides, "ask_mode": ask_mode, "variation": variation_index},
+            ),
+            math_verification=MathVerificationResult(
+                status=MathCheckStatus.VERIFIED,
+                expression=expr_val,
+                evaluated_value=expr_val,
+                details=f"Verified 2D shape {sh_name}: {ans}",
+            ),
+        )
+
+    # -----------------------------------------------------------------------
+    # Pattern 7B: Visual Addition for Class 1 & 2 (Lesson 5: Addition)
+    # -----------------------------------------------------------------------
+    if g_num <= 2 and any(k in ch_clean for k in ("addition", "sum", "add")):
+        add_variations = [
+            (3, 2), (2, 3), (4, 2), (2, 4), (3, 3), (4, 3), (3, 4), (5, 2),
+            (2, 5), (4, 1), (1, 5), (5, 3), (3, 1), (2, 2), (6, 2), (1, 4),
+        ]
+        c_left, c_right = add_variations[variation_index % len(add_variations)]
+        tot_sum = c_left + c_right
+        t_type = "star" if variation_index % 2 == 0 else "circle"
+        svg_content = render_visual_addition_svg(count_left=c_left, count_right=c_right, token_type=t_type)
+
+        q_text = f"Count the items in both boxes and find the sum: {c_left} + {c_right} = ___"
+        ans = str(tot_sum)
+        sol = f"Box 1 has {c_left} items and Box 2 has {c_right} items. Total = {c_left} + {c_right} = {tot_sum}."
         if question_type == QuestionType.MULTIPLE_CHOICE:
-            options = [str(in_c), str(out_c), str(in_c + out_c), str(in_c - 1)]
-            q_text = "Count how many stars are INSIDE the circular boundary in the figure:"
-            ans = str(in_c)
+            distractors = [str(tot_sum - 1), str(tot_sum + 1), str(max(1, tot_sum - 2))]
+            options = sorted(list(set([ans] + distractors)), key=lambda x: int(x))
+            while len(options) < 4:
+                options.append(str(len(options) + 1))
+            options = sorted(list(set(options)), key=lambda x: int(x))
+            correct_opt = ans
         else:
             options = None
-            q_text = "How many stars are positioned INSIDE the circular boundary? Write the number:"
-            ans = str(in_c)
+            correct_opt = None
 
-        sol = f"Counting the stars inside the circle gives 1, 2, ... {in_c}. There are {in_c} stars inside."
+        return Question(
+            question_text=q_text,
+            question_type=question_type,
+            marks=marks,
+            difficulty=difficulty,
+            grade=f"Class {g_num}",
+            chapter=chapter,
+            topic=chapter,
+            options=options,
+            correct_option=correct_opt,
+            answer=ans,
+            solution=sol,
+            question_subtype="figure_based",
+            figure=FigureData(
+                figure_type="visual_addition",
+                title=f"Visual Addition: {c_left} + {c_right}",
+                svg_content=svg_content,
+                parameters={"left": c_left, "right": c_right, "sum": tot_sum, "token": t_type, "variation": variation_index},
+            ),
+            math_verification=MathVerificationResult(
+                status=MathCheckStatus.VERIFIED,
+                expression=f"{c_left} + {c_right}",
+                evaluated_value=str(tot_sum),
+                details=f"Verified addition {c_left} + {c_right} = {tot_sum}",
+            ),
+        )
+
+    # -----------------------------------------------------------------------
+    # Pattern 7C: Counting & Digits for Class 1 & 2 (Digits 1-9 & Counting)
+    # -----------------------------------------------------------------------
+    if g_num <= 2 and any(k in ch_clean for k in ("digits", "digit", "count", "zero", "number")):
+        count_opts = [3, 4, 5, 6, 7, 8, 2, 9, 4, 5, 6, 3]
+        target_count = count_opts[variation_index % len(count_opts)]
+        t_type = "circle" if variation_index % 2 == 0 else "star"
+        svg_content = render_object_grid_counting_svg(count=target_count, token_type=t_type)
+
+        q_text = f"Count how many items are shown in the frame in the figure:"
+        ans = str(target_count)
+        sol = f"Counting the items in the frame gives 1, 2, ... {target_count}. There are {target_count} items."
+        if question_type == QuestionType.MULTIPLE_CHOICE:
+            distractors = [str(target_count - 1), str(target_count + 1), str(max(1, target_count - 2))]
+            options = sorted(list(set([ans] + distractors)), key=lambda x: int(x))
+            while len(options) < 4:
+                options.append(str(len(options) + 1))
+            options = sorted(list(set(options)), key=lambda x: int(x))
+            correct_opt = ans
+        else:
+            options = None
+            correct_opt = None
+
+        return Question(
+            question_text=q_text,
+            question_type=question_type,
+            marks=marks,
+            difficulty=difficulty,
+            grade=f"Class {g_num}",
+            chapter=chapter,
+            topic=chapter,
+            options=options,
+            correct_option=correct_opt,
+            answer=ans,
+            solution=sol,
+            question_subtype="figure_based",
+            figure=FigureData(
+                figure_type="object_grid_counting",
+                title=f"Object Counting: {target_count}",
+                svg_content=svg_content,
+                parameters={"inside_count": target_count, "count": target_count, "token": t_type, "variation": variation_index},
+            ),
+            math_verification=MathVerificationResult(
+                status=MathCheckStatus.VERIFIED,
+                expression=str(target_count),
+                evaluated_value=str(target_count),
+                details=f"Verified object count: {target_count}",
+            ),
+        )
+
+    # -----------------------------------------------------------------------
+    # Pattern 7D: Spatial Boundary Counting (Class 1 & 2 Spatial Understanding)
+    # -----------------------------------------------------------------------
+    if g_num <= 1 or (g_num == 2 and any(k in ch_clean for k in ("spatial", "space", "position", "boundary", "understanding"))):
+        count_variations = [
+            (4, 2), (3, 2), (5, 2), (3, 3), (4, 3), (5, 3), (6, 2), (2, 3),
+            (5, 4), (6, 1), (4, 4), (3, 4), (5, 1), (2, 4), (4, 1), (3, 1),
+        ]
+        in_c, out_c = count_variations[variation_index % len(count_variations)]
+        # Alternate asking for INSIDE vs OUTSIDE
+        ask_inside = (variation_index % 2 == 0)
+        target_c = in_c if ask_inside else out_c
+        t_type = "circle" if (variation_index // 2) % 2 == 1 else "star"
+
+        svg_content = render_counting_spatial_svg(inside_count=in_c, outside_count=out_c, token_type=t_type)
+
+        pos_word = "INSIDE" if ask_inside else "OUTSIDE"
+        item_word = "dots" if t_type == "circle" else "stars"
+        if question_type == QuestionType.MULTIPLE_CHOICE:
+            other_c = out_c if ask_inside else in_c
+            distractors = [str(other_c), str(in_c + out_c), str(max(1, target_c - 1))]
+            options = sorted(list(set([str(target_c)] + [d for d in distractors if d != str(target_c)][:3])), key=lambda x: int(x))
+            while len(options) < 4:
+                options.append(str(len(options) + 1))
+            options = sorted(list(set(options)), key=lambda x: int(x))
+            v_phr = (variation_index // 2) % 4
+            prompt_variants_mcq = [
+                f"Count how many {item_word} are {pos_word} the circular boundary in the figure:",
+                f"Observe the diagram and count the {item_word} {pos_word} the circular region:",
+                f"How many {item_word} can you count {pos_word} the circular boundary?",
+                f"Look at the figure. How many {item_word} are located {pos_word} the circle?",
+            ]
+            q_text = prompt_variants_mcq[v_phr]
+            ans = str(target_c)
+        else:
+            options = None
+            v_phr = (variation_index // 2) % 4
+            prompt_variants_sa = [
+                f"How many {item_word} are positioned {pos_word} the circular boundary? Write the number:",
+                f"Count and write the total number of {item_word} located {pos_word} the circular boundary:",
+                f"Write the count of {item_word} {pos_word} the circle shown in the figure:",
+                f"Observe the figure. State how many {item_word} are {pos_word} the circle:",
+            ]
+            q_text = prompt_variants_sa[v_phr]
+            ans = str(target_c)
+
+        sol = f"Counting the {item_word} {pos_word.lower()} the circle gives 1, 2, ... {target_c}. There are {target_c} {item_word} {pos_word.lower()}."
 
         return Question(
             question_text=q_text,
@@ -802,13 +1129,13 @@ def create_figure_question(
                 figure_type="counting_spatial",
                 title="Spatial Boundary Counting",
                 svg_content=svg_content,
-                parameters={"inside_count": in_c, "outside_count": out_c},
+                parameters={"inside_count": in_c, "outside_count": out_c, "target_count": target_c, "ask_inside": ask_inside, "token": t_type, "variation": variation_index},
             ),
             math_verification=MathVerificationResult(
                 status=MathCheckStatus.VERIFIED,
-                expression=str(in_c),
-                evaluated_value=str(in_c),
-                details=f"Verified count: {in_c}",
+                expression=str(target_c),
+                evaluated_value=str(target_c),
+                details=f"Verified count: {target_c}",
             ),
         )
 
@@ -816,8 +1143,21 @@ def create_figure_question(
     # Pattern 6: Angles (Class 5 - Shapes and Angles)
     # -----------------------------------------------------------------------
     if "angle" in ch_clean and g_num >= 5:
-        deg = 120 if difficulty != Difficulty.EASY else 90
-        ang_type = "Obtuse angle" if deg > 90 else "Right angle"
+        angle_variations = [
+            (120, "Obtuse angle"),
+            (90, "Right angle"),
+            (45, "Acute angle"),
+            (135, "Obtuse angle"),
+            (60, "Acute angle"),
+            (150, "Obtuse angle"),
+            (30, "Acute angle"),
+            (110, "Obtuse angle"),
+        ]
+        if difficulty == Difficulty.EASY:
+            deg, ang_type = (90, "Right angle") if variation_index % 2 == 0 else (45, "Acute angle")
+        else:
+            deg, ang_type = angle_variations[variation_index % len(angle_variations)]
+
         svg_content = render_angle_diagram_svg(angle_degrees=deg)
 
         options = ["Acute angle", "Right angle", "Obtuse angle", "Straight angle"]
@@ -825,7 +1165,8 @@ def create_figure_question(
         ans = ang_type
         sol = (
             f"Step 1: An angle measuring 90° is a right angle. "
-            f"Step 2: The angle shown measures {deg}°, which is {'greater than 90° and less than 180°' if deg > 90 else 'exactly 90°'}. "
+            f"Step 2: The angle shown measures {deg}°, which is "
+            f"{'greater than 90° and less than 180°' if deg > 90 else ('exactly 90°' if deg == 90 else 'less than 90°')}. "
             f"Step 3: Therefore, it is a(n) {ang_type.lower()}."
         )
 
@@ -846,29 +1187,30 @@ def create_figure_question(
                 figure_type="angle_rays",
                 title="Angle Diagram",
                 svg_content=svg_content,
-                parameters={"degrees": deg, "type": ang_type},
+                parameters={"degrees": deg, "type": ang_type, "variation": variation_index},
             ),
         )
 
     # -----------------------------------------------------------------------
     # Pattern 1: Visual Multiplication & Equal Groups (Classes 2 & 3)
-    # Inspired by User Reference Image 1
     # -----------------------------------------------------------------------
     if "multiplication" in ch_clean or "times" in ch_clean or "tables" in ch_clean or (g_num in (2, 3) and "addition" in ch_clean and "not more than 9" not in ch_clean):
-        groups = 2 if difficulty != Difficulty.HARD else 3
-        count = 4 if difficulty == Difficulty.MEDIUM else (3 if difficulty == Difficulty.EASY else 5)
-        expr_str = f"{count} × {groups}" if groups == 2 else f"{count} × {groups}"
+        mult_variations = [
+            (2, 4), (2, 3), (3, 3), (3, 2), (2, 5), (4, 2), (3, 4), (2, 6), (4, 3), (5, 2)
+        ]
+        groups, count = mult_variations[variation_index % len(mult_variations)]
+        expr_str = f"{count} × {groups}"
 
         svg_content, options, correct_opt = render_multiplication_options_svg(
             correct_groups=groups,
             correct_count_per_group=count,
-            shape_type="star",
+            shape_type="star" if variation_index % 2 == 0 else "circle",
         )
 
         q_text = f"The figure that represents {expr_str} among the following is:"
-        ans = f"{correct_opt} ({count} + {count} = {count * groups})"
+        ans = f"{correct_opt} ({count} + {count} = {count * groups})" if groups == 2 else f"{correct_opt} ({' + '.join([str(count)] * groups)} = {count * groups})"
         sol = (
-            f"Step 1: The expression {count} × {groups} represents {groups} equal groups of {count} stars. "
+            f"Step 1: The expression {count} × {groups} represents {groups} equal groups of {count} items. "
             f"Step 2: Adding {groups} groups of {count} ({' + '.join([str(count)] * groups)}) gives {count * groups}. "
             f"Step 3: Therefore, {correct_opt} correctly represents {expr_str}."
         )
@@ -890,7 +1232,7 @@ def create_figure_question(
                 figure_type="multiplication_groups",
                 title=f"Multiplication Representation for {expr_str}",
                 svg_content=svg_content,
-                parameters={"groups": groups, "count_per_group": count, "expression": expr_str},
+                parameters={"groups": groups, "count_per_group": count, "expression": expr_str, "variation": variation_index},
             ),
             math_verification=MathVerificationResult(
                 status=MathCheckStatus.VERIFIED,
@@ -902,36 +1244,23 @@ def create_figure_question(
 
     # -----------------------------------------------------------------------
     # Pattern 2: 3D Geometrical Solids & Top/Side Views (Classes 2, 3, 5)
-    # Inspired by User Reference Image 2
     # -----------------------------------------------------------------------
     if any(k in ch_clean for k in ("shapes", "solid", "solids")) and g_num >= 2:
-        if difficulty == Difficulty.EASY:
-            # Direct recognition of 3D solid
-            svg_content, options, correct_opt = render_solid_views_question_svg(
-                side_view_shape="square",
-                top_view_shape="square",
-                solids=["Cube", "Cylinder", "Cone", "Cuboid"],
-            )
-            q_text = "A solid object when viewed from side is a square and its top view is also a square. Identify the solid:"
-            ans = correct_opt
-            sol = "A cube has all square faces. Both its side view and top view are squares."
-        else:
-            # Medium / Hard: Cylinder views (Reference Image 2)
-            svg_content, options, correct_opt = render_solid_views_question_svg(
-                side_view_shape="rectangle",
-                top_view_shape="circle",
-                solids=["Cube", "Cylinder", "Cone", "Cuboid"],
-            )
-            q_text = "A solid object when viewed from the side appears as a rectangle and its top view is a circle. The solid is:"
-            ans = correct_opt
-            sol = (
-                "Step 1: Inspect the side view: a rectangle with parallel vertical sides. "
-                "Step 2: Inspect the top view: a flat circular face. "
-                "Step 3: A cylinder has two circular bases and a curved rectangular surface, matching both views."
-            )
+        solid_variations = [
+            {"solid": "Cylinder", "side": "rectangle", "top": "circle", "q": "A solid object when viewed from the side appears as a rectangle and its top view is a circle. The solid is:", "sol": "A cylinder has two circular bases and a curved rectangular surface, matching both views."},
+            {"solid": "Cube", "side": "square", "top": "square", "q": "A solid object when viewed from side is a square and its top view is also a square. Identify the solid:", "sol": "A cube has all square faces. Both its side view and top view are squares."},
+            {"solid": "Cone", "side": "triangle", "top": "circle", "q": "A solid object when viewed from the side appears as a triangle and its top view is a circle. The solid is:", "sol": "A cone has a circular flat base and tapers up, appearing triangular in profile view and circular from top."},
+            {"solid": "Cuboid", "side": "rectangle", "top": "square", "q": "A solid object when viewed from the side appears as a rectangle and its top view is a square. Identify the solid:", "sol": "A cuboid can have square ends and rectangular lateral sides, matching both views."},
+        ]
+        s_var = solid_variations[variation_index % len(solid_variations)]
+        svg_content, options, correct_opt = render_solid_views_question_svg(
+            side_view_shape=s_var["side"],
+            top_view_shape=s_var["top"],
+            solids=["Cube", "Cylinder", "Cone", "Cuboid"],
+        )
 
         return Question(
-            question_text=q_text,
+            question_text=s_var["q"],
             question_type=QuestionType.MULTIPLE_CHOICE,
             marks=marks,
             difficulty=difficulty,
@@ -940,35 +1269,31 @@ def create_figure_question(
             topic=chapter,
             options=options,
             correct_option=correct_opt,
-            answer=ans,
-            solution=sol,
+            answer=correct_opt,
+            solution=s_var["sol"],
             question_subtype="figure_based",
             figure=FigureData(
                 figure_type="solid_views",
                 title="Solid Views Projection Diagram",
                 svg_content=svg_content,
-                parameters={"side_view": "rectangle", "top_view": "circle", "solid": "cylinder"},
+                parameters={"side_view": s_var["side"], "top_view": s_var["top"], "solid": s_var["solid"], "variation": variation_index},
             ),
         )
 
     # -----------------------------------------------------------------------
     # Pattern 3: 2D Geometrical Shapes & Symmetry (Classes 3, 4, 5)
-    # Inspired by User Reference Image 3
     # -----------------------------------------------------------------------
     if ("shape" in ch_clean or "symmetry" in ch_clean or "circle" in ch_clean) and g_num >= 3:
+        sym_variations = [
+            {"axes": 2, "ans": "(D) Rectangle", "q": "The geometrical figure with only two axes of symmetry among the following is:", "sol": "A rectangle has exactly 2 axes of symmetry (1 vertical and 1 horizontal)."},
+            {"axes": 4, "ans": "(A) Square", "q": "The geometrical figure with exactly four axes of symmetry among the following is:", "sol": "A square has 4 axes of symmetry (vertical, horizontal, and 2 diagonals)."},
+            {"axes": 0, "ans": "(B) Right Scalene Triangle", "q": "The geometrical figure with no line of symmetry among the following is:", "sol": "A scalene triangle with all unequal sides has 0 lines of symmetry."},
+        ]
+        sym_var = sym_variations[variation_index % len(sym_variations)]
         svg_content, options, correct_opt = render_symmetry_shapes_options_svg()
-        q_text = "The geometrical figure with only two axes of symmetry among the following is:"
-        ans = "(D) Rectangle"
-        sol = (
-            "Step 1: Check Square (A): A square has 4 axes of symmetry (vertical, horizontal, and 2 diagonals). "
-            "Step 2: Check Right Scalene Triangle (B): Has 0 axes of symmetry. "
-            "Step 3: Check Circle (C): A circle has infinitely many axes of symmetry. "
-            "Step 4: Check Rectangle (D): A rectangle has exactly 2 axes of symmetry (1 vertical and 1 horizontal). "
-            "Conclusion: Figure D (Rectangle) is correct."
-        )
 
         return Question(
-            question_text=q_text,
+            question_text=sym_var["q"],
             question_type=QuestionType.MULTIPLE_CHOICE,
             marks=marks,
             difficulty=difficulty,
@@ -976,15 +1301,15 @@ def create_figure_question(
             chapter=chapter,
             topic=chapter,
             options=options,
-            correct_option=correct_opt,
-            answer=ans,
-            solution=sol,
+            correct_option=sym_var["ans"],
+            answer=sym_var["ans"],
+            solution=sym_var["sol"],
             question_subtype="figure_based",
             figure=FigureData(
                 figure_type="symmetry_shapes",
                 title="Geometrical Shapes & Axes of Symmetry",
                 svg_content=svg_content,
-                parameters={"target_axes": 2, "answer_shape": "rectangle"},
+                parameters={"target_axes": sym_var["axes"], "variation": variation_index},
             ),
         )
 
@@ -992,11 +1317,18 @@ def create_figure_question(
     # Pattern 4: Fractions Visuals (Classes 4 & 5)
     # -----------------------------------------------------------------------
     if "fraction" in ch_clean and g_num >= 4:
-        total = 4 if difficulty != Difficulty.HARD else 8
-        shaded = 3 if difficulty != Difficulty.HARD else 5
+        frac_variations = [
+            (4, 3), (4, 1), (6, 5), (8, 3), (8, 5), (6, 2), (8, 7), (4, 2), (6, 3), (8, 1)
+        ]
+        total, shaded = frac_variations[variation_index % len(frac_variations)]
         svg_content = render_fraction_circle_svg(total_parts=total, shaded_parts=shaded)
 
-        options = [f"{shaded}/{total}", f"1/{total}", f"{total - shaded}/{total}", f"{shaded - 1}/{total}"]
+        distractors = [f"{total - shaded}/{total}", f"{shaded - 1 if shaded > 1 else shaded + 2}/{total}", f"1/{total}"]
+        options = [f"{shaded}/{total}"] + [d for d in distractors if d != f"{shaded}/{total}"][:3]
+        while len(options) < 4:
+            options.append(f"{len(options)}/{total}")
+        options = list(dict.fromkeys(options))
+
         q_text = "What fraction of the circular region is shaded in the given figure?"
         ans = f"{shaded}/{total}"
         sol = (
@@ -1022,7 +1354,7 @@ def create_figure_question(
                 figure_type="fraction_shape",
                 title="Circular Fraction Region",
                 svg_content=svg_content,
-                parameters={"total_parts": total, "shaded_parts": shaded},
+                parameters={"total_parts": total, "shaded_parts": shaded, "variation": variation_index},
             ),
             math_verification=MathVerificationResult(
                 status=MathCheckStatus.VERIFIED,
@@ -1036,13 +1368,19 @@ def create_figure_question(
     # Pattern 5: Perimeter & Grid Measurements (Classes 4 & 5)
     # -----------------------------------------------------------------------
     if any(k in ch_clean for k in ("perimeter", "area", "length", "square", "squares")) and g_num >= 4:
-        w_units = 5 if difficulty != Difficulty.EASY else 4
-        h_units = 3 if difficulty != Difficulty.EASY else 2
+        perim_variations = [
+            (5, 3), (4, 2), (6, 2), (4, 3), (6, 3), (5, 2), (5, 4), (7, 2), (6, 4), (7, 3)
+        ]
+        w_units, h_units = perim_variations[variation_index % len(perim_variations)]
         perim = 2 * (w_units + h_units)
         svg_content = render_grid_perimeter_svg(width_units=w_units, height_units=h_units)
 
         if question_type == QuestionType.MULTIPLE_CHOICE:
-            options = [f"{perim} cm", f"{w_units * h_units} cm", f"{perim + 2} cm", f"{perim - 2} cm"]
+            distractors = [f"{w_units * h_units} cm", f"{perim + 2} cm", f"{perim - 2} cm"]
+            options = [f"{perim} cm"] + [d for d in distractors if d != f"{perim} cm"][:3]
+            while len(options) < 4:
+                options.append(f"{perim + len(options)} cm")
+            options = list(dict.fromkeys(options))
             q_text = "Look at the shaded rectangular shape on the 1 cm grid. Find its perimeter:"
             ans = f"{perim} cm"
         else:
@@ -1072,97 +1410,13 @@ def create_figure_question(
                 figure_type="perimeter_grid",
                 title="Grid Perimeter Measurement",
                 svg_content=svg_content,
-                parameters={"width": w_units, "height": h_units, "perimeter": perim},
+                parameters={"width": w_units, "height": h_units, "perimeter": perim, "variation": variation_index},
             ),
             math_verification=MathVerificationResult(
                 status=MathCheckStatus.VERIFIED,
                 expression=f"2 * ({w_units} + {h_units})",
                 evaluated_value=str(perim),
                 details=f"Verified: 2 * ({w_units} + {h_units}) = {perim}",
-            ),
-        )
-
-    # -----------------------------------------------------------------------
-    # Pattern 6: Angles (Class 5)
-    # -----------------------------------------------------------------------
-    if "angle" in ch_clean and g_num == 5:
-        deg = 120 if difficulty != Difficulty.EASY else 90
-        ang_type = "Obtuse angle" if deg > 90 else "Right angle"
-        svg_content = render_angle_diagram_svg(angle_degrees=deg)
-
-        options = ["Acute angle", "Right angle", "Obtuse angle", "Straight angle"]
-        q_text = "Identify the type of angle represented in the figure:"
-        ans = ang_type
-        sol = (
-            f"Step 1: An angle measuring 90° is a right angle. "
-            f"Step 2: The angle shown measures {deg}°, which is {'greater than 90° and less than 180°' if deg > 90 else 'exactly 90°'}. "
-            f"Step 3: Therefore, it is a(n) {ang_type.lower()}."
-        )
-
-        return Question(
-            question_text=q_text,
-            question_type=QuestionType.MULTIPLE_CHOICE,
-            marks=marks,
-            difficulty=difficulty,
-            grade=f"Class {g_num}",
-            chapter=chapter,
-            topic=chapter,
-            options=options,
-            correct_option=ans,
-            answer=ans,
-            solution=sol,
-            question_subtype="figure_based",
-            figure=FigureData(
-                figure_type="angle_rays",
-                title="Angle Diagram",
-                svg_content=svg_content,
-                parameters={"degrees": deg, "type": ang_type},
-            ),
-        )
-
-    # -----------------------------------------------------------------------
-    # Pattern 7: Counting & Spatial Relations (Class 1 & 2)
-    # -----------------------------------------------------------------------
-    if any(k in ch_clean for k in ("spatial", "digits", "solids")) and g_num <= 2:
-        in_c = 4 if difficulty == Difficulty.MEDIUM else (3 if difficulty == Difficulty.EASY else 5)
-        out_c = 2
-        svg_content = render_counting_spatial_svg(inside_count=in_c, outside_count=out_c)
-
-        if question_type == QuestionType.MULTIPLE_CHOICE:
-            options = [str(in_c), str(out_c), str(in_c + out_c), str(in_c - 1)]
-            q_text = "Count how many stars are INSIDE the circular boundary in the figure:"
-            ans = str(in_c)
-        else:
-            options = None
-            q_text = "How many stars are positioned INSIDE the circular boundary? Write the number:"
-            ans = str(in_c)
-
-        sol = f"Counting the stars inside the circle gives 1, 2, ... {in_c}. There are {in_c} stars inside."
-
-        return Question(
-            question_text=q_text,
-            question_type=question_type,
-            marks=marks,
-            difficulty=difficulty,
-            grade=f"Class {g_num}",
-            chapter=chapter,
-            topic=chapter,
-            options=options,
-            correct_option=ans if options else None,
-            answer=ans,
-            solution=sol,
-            question_subtype="figure_based",
-            figure=FigureData(
-                figure_type="counting_spatial",
-                title="Spatial Boundary Counting",
-                svg_content=svg_content,
-                parameters={"inside_count": in_c, "outside_count": out_c},
-            ),
-            math_verification=MathVerificationResult(
-                status=MathCheckStatus.VERIFIED,
-                expression=str(in_c),
-                evaluated_value=str(in_c),
-                details=f"Verified count: {in_c}",
             ),
         )
 

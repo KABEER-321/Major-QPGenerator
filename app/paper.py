@@ -34,6 +34,9 @@ def assemble_paper(
     num_versions: int = 1,
     blueprint_id: Optional[str] = None,
     set_label: Optional[str] = None,
+    student_name: Optional[str] = None,
+    roll_number: Optional[str] = None,
+    generation_mode: Optional[str] = None,
 ) -> Paper:
     """
     Assemble validated questions into a Paper object.
@@ -47,8 +50,13 @@ def assemble_paper(
     exam_type = request.exam_type or ExamType.FINAL
 
     grade_display = format_grade_display(academic_class)
-    if set_label:
-        version_suffix = f" (Set {set_label})"
+    if student_name:
+        version_suffix = f" (Student {version_number}: {student_name})"
+    elif set_label:
+        if str(set_label).lower().startswith("student "):
+            version_suffix = f" ({set_label})"
+        else:
+            version_suffix = f" (Set {set_label})"
     else:
         version_suffix = f" (Version {version_number})" if num_versions > 1 else ""
     title = f"{grade_display} {request.subject} — {exam_type.display_name}{version_suffix}"
@@ -185,6 +193,9 @@ def assemble_paper(
         num_versions=num_versions,
         blueprint_id=blueprint_id,
         set_label=set_label,
+        student_name=student_name,
+        roll_number=roll_number,
+        generation_mode=generation_mode,
         custom_syllabus_id=getattr(request, "custom_syllabus_id", None),
         custom_syllabus_name=getattr(request, "custom_syllabus_name", None),
     )
@@ -273,6 +284,9 @@ def list_papers() -> list[PaperSummary]:
                     num_versions=data.get("num_versions", 1),
                     batch_id=data.get("batch_id"),
                     set_label=data.get("set_label"),
+                    student_name=data.get("student_name"),
+                    roll_number=data.get("roll_number"),
+                    generation_mode=data.get("generation_mode"),
                 )
             )
         except Exception as e:

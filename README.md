@@ -242,17 +242,20 @@ In the Teacher Portal choose **Syllabus Source → Custom Syllabus**:
 API: pass `custom_syllabus_id`, `selected_chapters` and optionally `selected_topics`
 (`{"Chapter title": ["topic", ...]}`) to `/papers/generate` or `/papers/generate-batch`.
 
-## Unique Question Paper Sets
+## Unique Question Paper Sets & Individualized Student Papers
 
-Pick **Question Paper Sets** (2–6) in the form. The batch pipeline generates a candidate pool, removes
-duplicates/near-duplicates, and deals disjoint questions into **Set A, B, C…** using the same blueprint,
-so every set has identical marks distribution, difficulty, chapter coverage and question pattern.
-Each set has its own Teacher/Student PDF (header shows "SET A"), plus ZIP downloads for all sets.
+Pick either **Numbered Sets (Set A, B, C...)** or **Individual Student Papers** in the form.
 
-If the syllabus cannot supply enough unique questions, nothing is duplicated: the API answers
-HTTP 422 (`CandidatePoolShortageError`, with needed/available counts) — or, with `allow_fewer_sets=true`
-(what the UI sends), returns the fully unique sets it could build and a `warnings` message that the
-UI shows to the teacher.
+### Individual Student Papers (Classroom Scaling)
+- **Parallel Generation, Not Shuffling**: Generates a completely unique, parallel examination paper for every student in a classroom (supports 1 to 50+ students). Questions are genuinely distinct (different numerical values, geometry dimensions, problem scenarios, and question formulations) while strictly preserving academic difficulty.
+- **Common Blueprint Invariance**: All student papers adhere to the identical blueprint solved via the Largest Remainder algorithm: same total marks, section marks, question counts, difficulty, and chapter weighting.
+- **Figure-Based Diversity**: Geometry and visual questions parameterize different shapes, dimensions, angles, counting groups, and symmetry axes across student variations.
+- **Student Assignment & Rosters**: Teachers can specify student counts or paste a classroom roster (`RollNo, Name` or `Name`), associating each paper with student names and roll numbers.
+- **Student and Teacher PDF Views & ZIP Bundles**:
+  - **Student PDF**: Contains only questions, student identification box, and ruled workspace (no answers or marking criteria).
+  - **Teacher PDF**: Includes step-by-step solutions, marking keys, SymPy verification status, and curriculum mapping.
+  - **ZIP Download**: Download all student papers as a clean ZIP bundle (e.g. `Student_01_Aarav_Sharma_Roll_101_student.pdf`) or all teacher answer keys with `Batch_Master_Index.txt`.
+- **Duplicate Prevention & Honest Shortage**: Questions are dealt without replacement from a validated pool. If the syllabus cannot supply enough unique questions, the system reports an honest shortage rather than duplicating questions or sacrificing academic rigor.
 
 ## Where Data Is Stored
 
@@ -284,7 +287,7 @@ uv run pytest tests/test_schemas.py -v
 uv run pytest -q
 ```
 
-Test count: **300+ tests**, covering:
+Test count: **320+ tests**, covering:
 - Blueprint validation: Section blueprints, exam blueprints, marks distribution, total marks & question count sums
 - Multi-version generation: Candidate pool selection without replacement, cross-version uniqueness, shortage errors
 - Duplicate & near-duplicate detection: Normalized text, token Jaccard, character 3-grams, MCQ option matching
@@ -296,7 +299,52 @@ Test count: **300+ tests**, covering:
 - All FastAPI endpoints (single generation, batch multi-version generation, documents, papers, PDF download, deletions)
 - Custom syllabus: parsing, PDF/DOCX/text upload, save/reuse, per-teacher isolation, strict chapter-scoped retrieval and generation (`tests/test_custom_syllabus*.py`)
 - Unique sets: Set A/B/C labelling, cross-set uniqueness, identical pattern, per-set PDFs/ZIP, shortage reporting (`tests/test_unique_sets.py`)
+- Individualized student examination papers: parallel unique paper generation per student with common blueprint invariance, student roster association, and ZIP export (`tests/test_student_individualized_papers.py`)
+- AI-Powered Performance-Based Personalized Worksheets: topic performance mastery classification, simulated archetypes (`DEMO / SIMULATED DATA`), Largest Remainder allocation (50% Weak, 30% Needs Improvement, 15% Average, 5% Strong), difficulty adaptation, student practice vs teacher solution PDFs, and future evaluation module adapter (`tests/test_personalized_worksheets.py`)
 - Edge cases: candidate shortage, invalid blueprints, malformed JSON, path traversal, oversized files
+
+## AI-Powered Personalized Practice Worksheets
+
+A dedicated module within QPGen for generating individualized remediation and enrichment practice worksheets based on each student's topic-wise academic mastery.
+
+### Core Capabilities
+1. **Separation from Examination Generation**:
+   - Access via the **🎯 Student Performance & Personalized Worksheets** tab in the Teacher Dashboard.
+   - Distinct pedagogical purpose: diagnostic remediation and targeted practice rather than summative evaluation.
+
+2. **Mastery-Based Topic Performance Classification**:
+   - **Weak (<40%)**: Core foundational gaps requiring immediate intervention.
+   - **Needs Improvement (40–59%)**: Developing concepts needing guided practice.
+   - **Average (60–79%)**: Competent concepts ready for application exercises.
+   - **Strong (80–100%)**: Mastered topics ready for higher-order reasoning challenges.
+
+3. **Intelligent Question Allocation (Largest Remainder Algorithm)**:
+   - Allocates practice questions based on mastery targets:
+     - **Weak Topics**: ~50% of worksheet questions.
+     - **Needs Improvement**: ~30% of worksheet questions.
+     - **Average Topics**: ~15% of worksheet questions.
+     - **Strong Topics**: ~5% of worksheet questions.
+   - Uses the Largest Remainder (Hamilton-Hare) mathematical method to ensure the exact requested question count is maintained without rounding drift.
+   - Dynamically reallocates when students have no weak topics.
+
+4. **Difficulty & Pedagogical Progression**:
+   - **Weak Topics**: Foundational questions (Easy difficulty) with step-by-step guidance.
+   - **Needs Improvement Topics**: Core concept reinforcement (Medium difficulty).
+   - **Average Topics**: Real-world application and multi-step problems (Medium difficulty).
+   - **Strong Topics**: Extension problems and higher-order reasoning challenges (Hard difficulty).
+
+5. **Dual Performance Input Modes**:
+   - **Mode A (Simulated Performance)**: Generates realistic multi-archetype student scores across curriculum chapters. All simulated data is strictly watermarked and labeled `DEMO / SIMULATED DATA`. Includes one-click score regeneration.
+   - **Mode B (Manual Performance Entry)**: Enables teachers to enter topic-by-topic student marks directly with automatic percentage calculation and mastery classification.
+
+6. **Future Evaluation Module Integration (`EvaluationModuleAdapter`)**:
+   - Built with an isolated, clean adapter pattern.
+   - External evaluation engines under development can feed raw `EvaluationResultRecord` items directly into `EvaluationModuleAdapter.ingest_evaluation_results()`, producing verified `StudentPerformanceProfile` objects without requiring changes to the worksheet generation engine.
+
+7. **Dedicated Worksheets PDFs & Batch ZIP**:
+   - **Student Practice Worksheet PDF**: Focus areas summary box, curriculum-aligned questions, marks allocation, visual geometry diagrams, and ruled workspace lines for student answers. No solutions or answers displayed.
+   - **Teacher Solution Key PDF**: Full step-by-step worked solutions, final answers, topic tags, difficulty ratings, and SymPy verification status tags.
+   - **Batch ZIP Export**: Bundles individual PDFs for all selected students along with an index manifest `Worksheet_Master_Index.txt`.
 
 ## Configuration
 

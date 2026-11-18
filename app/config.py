@@ -93,6 +93,20 @@ class Settings(BaseSettings):
         d.mkdir(parents=True, exist_ok=True)
         return d
 
+    @property
+    def worksheets_dir(self) -> Path:
+        """Directory for saved personalized practice worksheet JSON files and PDFs."""
+        d = self.DATA_DIR / "worksheets"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    @property
+    def performance_dir(self) -> Path:
+        """Directory for saved student performance records."""
+        d = self.DATA_DIR / "student_performance"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
     model_config = ConfigDict(env_file=".env", extra="ignore")
 
 

@@ -4,12 +4,13 @@
 
 import io
 import logging
+import re
 import uuid
 import zipfile
 from typing import Optional
 from pathlib import Path
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Response, status, Depends
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Response, status, Depends, Query
 from fastapi.responses import Response, HTMLResponse, RedirectResponse
 
 from app.config import settings
@@ -62,6 +63,7 @@ from app.schemas import (
     CustomSyllabusSummary,
     CustomSyllabusUpdateRequest,
     SET_LABELS,
+    format_set_or_student_label,
 )
 from app.custom_syllabus import (
     SelectionError,
@@ -81,7 +83,11 @@ from app.documents import (
 )
 from app.retrieval import build_faiss_index, retrieve_relevant_chunks
 from app.generator import generate_questions, generate_candidate_pool
-from app.duplicates import select_version_questions, CandidatePoolShortageError
+from app.duplicates import (
+    select_version_questions,
+    CandidatePoolShortageError,
+    validate_batch_papers_uniqueness,
+)
 from app.paper import (
     assemble_paper,
     save_paper,
@@ -1212,7 +1218,16 @@ def generate_batch_papers(request: BatchPaperGenerateRequest, current_user: User
             "No questions were duplicated across sets. Reduce the number of sets, widen the syllabus "
             "selection, or generate again to get more unique questions."
         )
-    set_labels = SET_LABELS[:sets_built]
+    mode = getattr(request, "generation_mode", "sets")
+    students_roster = getattr(request, "students", None) or []
+    # If student roster was provided, default mode to individual
+    if students_roster:
+        mode = "individual"
+
+    set_labels: list[str] = []
+    for v_idx in range(sets_built):
+        st = students_roster[v_idx] if v_idx < len(students_roster) else None
+        set_labels.append(format_set_or_student_label(v_idx, mode=mode, student=st))
 
     # Assemble and persist each set
     saved_papers: list[Paper] = []
@@ -1222,6 +1237,9 @@ def generate_batch_papers(request: BatchPaperGenerateRequest, current_user: User
         v_num = v_idx + 1
         v_qs = versions_questions[v_idx]
         v_secs = versions_sections[v_idx]
+        st = students_roster[v_idx] if v_idx < len(students_roster) else None
+        st_name = st.student_name if st else None
+        st_roll = st.roll_number if st else None
 
         single_req = PaperGenerateRequest(
             document_id=request.document_id,
@@ -1251,10 +1269,13 @@ def generate_batch_papers(request: BatchPaperGenerateRequest, current_user: User
             num_versions=sets_built,
             blueprint_id=blueprint.blueprint_id,
             set_label=set_labels[v_idx],
+            student_name=st_name,
+            roll_number=st_roll,
+            generation_mode=mode,
         )
         is_valid, validation_errors = validate_full_paper(paper)
         if not is_valid:
-            logger.warning("Batch paper set %s has validation warnings: %s", set_labels[v_idx], validation_errors)
+            logger.warning("Batch paper %s has validation warnings: %s", set_labels[v_idx], validation_errors)
         save_paper(paper)
         saved_papers.append(paper)
         paper_ids.append(paper.paper_id)
@@ -1264,8 +1285,20 @@ def generate_batch_papers(request: BatchPaperGenerateRequest, current_user: User
         1 for p in saved_papers for q in p.questions
         if q.math_verification and q.math_verification.status == MathCheckStatus.VERIFIED
     )
-    all_q_ids = [q.question_id for p in saved_papers for q in p.questions]
-    is_unique = len(all_q_ids) == len(set(all_q_ids))
+    is_unique, uniq_violations = validate_batch_papers_uniqueness(saved_papers)
+    if not is_unique:
+        logger.warning("Uniqueness validation issues in batch: %s", uniq_violations)
+        if not request.allow_fewer_sets:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "UniquenessValidationError",
+                    "message": f"Could not guarantee 100% unique questions across all requested papers: {'; '.join(uniq_violations[:3])}. Reduce the number of sets or widen the syllabus selection.",
+                    "violations": uniq_violations,
+                },
+            )
+        else:
+            warnings.append(f"Uniqueness notice: {'; '.join(uniq_violations[:2])}")
 
     summary = BatchValidationSummary(
         total_candidates_generated=len(candidates) + dups_rejected + math_discrepancies,
@@ -1276,8 +1309,9 @@ def generate_batch_papers(request: BatchPaperGenerateRequest, current_user: User
         is_unique=is_unique,
         all_versions_valid=all(p.num_questions == blueprint.total_questions for p in saved_papers),
         details=(
-            f"Generated {len(saved_papers)} unique sets ({blueprint.total_questions} questions, "
+            f"Generated {len(saved_papers)} unique papers ({blueprint.total_questions} questions, "
             f"{blueprint.total_marks} marks each) under blueprint '{blueprint.title}'."
+            + (f" Uniqueness notices: {'; '.join(uniq_violations)}" if uniq_violations else "")
         ),
     )
 
@@ -1290,6 +1324,8 @@ def generate_batch_papers(request: BatchPaperGenerateRequest, current_user: User
         paper_ids=paper_ids,
         validation_summary=summary,
         set_labels=set_labels,
+        students=students_roster if students_roster else None,
+        generation_mode=mode,
         warnings=warnings,
     )
 
@@ -1363,7 +1399,7 @@ def download_paper_pdf(paper_id: str, include_answers: bool = True, current_user
 
 @app.get("/papers/batch/{batch_id}/pdfs", tags=["Papers"])
 def download_batch_pdfs(batch_id: str, include_answers: bool = True, current_user: User = Depends(require_teacher)):
-    """Download a separate PDF for every set (Set A, B, C...) of a batch, bundled in a ZIP."""
+    """Download a separate PDF for every set (Set A, B, C...) or student of a batch, bundled in a ZIP."""
     summaries = [p for p in list_papers() if p.batch_id == batch_id]
     if not summaries:
         raise HTTPException(status_code=404, detail=f"No papers found for batch '{batch_id}'.")
@@ -1371,17 +1407,41 @@ def download_batch_pdfs(batch_id: str, include_answers: bool = True, current_use
     kind = "solutions" if include_answers else "student"
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        index_entries: list[str] = []
         for summ in summaries:
             try:
                 paper = load_paper(summ.paper_id)
             except (FileNotFoundError, ValueError):
                 continue
-            label = paper.set_label or str(paper.version_number)
-            zf.writestr(f"Set_{label}_{kind}.pdf", generate_pdf(paper, include_answers=include_answers))
+
+            if paper.student_name:
+                clean_name = re.sub(r"[^a-zA-Z0-9_\-]", "_", paper.student_name).strip("_")
+                roll_part = f"_Roll_{paper.roll_number}" if paper.roll_number else ""
+                filename = f"Student_{paper.version_number:02d}_{clean_name}{roll_part}_{kind}.pdf"
+            elif str(paper.set_label or "").lower().startswith("student "):
+                clean_lbl = str(paper.set_label).replace(" ", "_")
+                filename = f"{clean_lbl}_{kind}.pdf"
+            else:
+                label = paper.set_label or str(paper.version_number)
+                filename = f"Set_{label}_{kind}.pdf"
+
+            zf.writestr(filename, generate_pdf(paper, include_answers=include_answers))
+            st_info = f"Student: {paper.student_name or 'Unassigned'}" + (f" | Roll No: {paper.roll_number}" if paper.roll_number else "")
+            index_entries.append(f"{paper.version_number}. [{paper.set_label or f'Version {paper.version_number}'}] {st_info} -> {filename}")
+
+        if include_answers and any(getattr(s, "student_name", None) for s in summaries) and index_entries:
+            index_doc = "EXAMINATION PAPERS & ANSWER KEYS BATCH INDEX\n" + "=" * 55 + "\n\n" + "\n".join(index_entries)
+            zf.writestr("Batch_Master_Index.txt", index_doc.encode("utf-8"))
+
+    zip_filename = (
+        f"individual_student_papers_{kind}.zip"
+        if any(s.student_name or str(s.set_label).startswith("Student") for s in summaries)
+        else f"question_paper_sets_{kind}.zip"
+    )
     return Response(
         content=buf.getvalue(),
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="question_paper_sets_{kind}.zip"'},
+        headers={"Content-Disposition": f'attachment; filename="{zip_filename}"'},
     )
 
 
@@ -1396,4 +1456,226 @@ def delete_paper_endpoint(paper_id: str, current_user: User = Depends(require_te
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Paper '{paper_id}' not found.")
     return {"message": f"Paper '{paper_id}' deleted successfully."}
+
+
+# ===========================================================================
+# STUDENT PERFORMANCE & PERSONALIZED PRACTICE WORKSHEETS
+# ===========================================================================
+
+from pydantic import BaseModel, Field
+
+from app.performance import (
+    EvaluationModuleAdapter,
+    EvaluationResultRecord,
+    PerformanceCategory,
+    StudentPerformanceProfile,
+    StudentTopicScore,
+    generate_simulated_profiles,
+    list_performance_profiles,
+    load_performance_profile,
+    save_performance_profile,
+)
+from app.worksheets import (
+    PersonalizedWorksheet,
+    WorksheetGenerateRequest,
+    allocate_worksheet_questions,
+    generate_personalized_worksheet,
+    list_worksheets,
+    load_worksheet,
+)
+from app.worksheet_pdf import generate_worksheet_pdf, generate_worksheets_zip
+
+
+class BatchWorksheetGenerateRequest(BaseModel):
+    grade: str = Field(..., description="Target class/grade")
+    subject: str = Field(default="Mathematics", description="Subject")
+    student_profiles: list[StudentPerformanceProfile] = Field(..., description="List of student performance profiles")
+    num_questions: int = Field(default=10, ge=3, le=30, description="Questions per worksheet")
+    include_figures: bool = Field(default=True, description="Whether to include visual figure questions")
+    custom_syllabus_id: Optional[str] = Field(default=None)
+
+
+class BatchWorksheetZipRequest(BaseModel):
+    worksheet_ids: list[str] = Field(..., min_length=1)
+    include_answers: bool = Field(default=False)
+
+
+@app.get("/worksheets/simulated-performance", response_model=list[StudentPerformanceProfile], tags=["Personalized Worksheets"])
+def get_simulated_performance(
+    grade: str = Query(default="5", description="Class grade 1-5"),
+    count: int = Query(default=3, ge=1, le=10, description="Number of sample students"),
+    assessment_id: Optional[str] = Query(default=None, description="Assessment ID reference"),
+    current_user: User = Depends(require_teacher),
+):
+    """
+    Generate realistic simulated performance data across curriculum chapters.
+    Clearly labeled with is_simulated=True (DEMO / SIMULATED DATA).
+    """
+    students_demo = [
+        {"student_name": "Aarav Sharma", "roll_number": "101"},
+        {"student_name": "Diya Patel", "roll_number": "102"},
+        {"student_name": "Mohammed Zaid", "roll_number": "103"},
+        {"student_name": "Priya Verma", "roll_number": "104"},
+        {"student_name": "Rohan Gupta", "roll_number": "105"},
+    ]
+    target_students = students_demo[:count]
+    profiles = generate_simulated_profiles(
+        grade=grade,
+        students=target_students,
+        assessment_id=assessment_id or f"assessment_grade_{grade}",
+        assessment_title=f"Class {grade} Mid-Semester Assessment (Demo)",
+    )
+    for p in profiles:
+        save_performance_profile(p)
+    return profiles
+
+
+@app.post("/worksheets/analyze-profile", response_model=StudentPerformanceProfile, tags=["Personalized Worksheets"])
+def analyze_student_profile(
+    profile: StudentPerformanceProfile,
+    current_user: User = Depends(require_teacher),
+):
+    """
+    Calculate and recompute topic-wise percentages, categories, strengths, and focus areas.
+    """
+    profile.recompute_summaries()
+    save_performance_profile(profile)
+    return profile
+
+
+@app.post("/worksheets/generate", response_model=PersonalizedWorksheet, tags=["Personalized Worksheets"])
+def generate_single_worksheet(
+    req: WorksheetGenerateRequest,
+    current_user: User = Depends(require_teacher),
+):
+    """
+    Generate an individualized practice worksheet tailored to an individual student's performance.
+    """
+    try:
+        ws = generate_personalized_worksheet(req)
+        return ws
+    except Exception as e:
+        logger.error("Worksheet generation failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to generate worksheet: {e}")
+
+
+@app.post("/worksheets/generate-batch", tags=["Personalized Worksheets"])
+def generate_batch_worksheets(
+    req: BatchWorksheetGenerateRequest,
+    current_user: User = Depends(require_teacher),
+):
+    """
+    Generate personalized practice worksheets for multiple students in a classroom.
+    """
+    if not req.student_profiles:
+        raise HTTPException(status_code=400, detail="Must provide at least one student profile.")
+
+    batch_id = uuid.uuid4().hex[:10]
+    worksheets: list[PersonalizedWorksheet] = []
+
+    for prof in req.student_profiles:
+        single_req = WorksheetGenerateRequest(
+            grade=req.grade,
+            subject=req.subject,
+            student_profile=prof,
+            num_questions=req.num_questions,
+            include_figures=req.include_figures,
+            custom_syllabus_id=req.custom_syllabus_id,
+        )
+        ws = generate_personalized_worksheet(single_req)
+        worksheets.append(ws)
+
+    return {
+        "batch_id": batch_id,
+        "total_generated": len(worksheets),
+        "worksheet_ids": [w.worksheet_id for w in worksheets],
+        "worksheets": worksheets,
+    }
+
+
+@app.get("/worksheets", tags=["Personalized Worksheets"])
+def list_saved_worksheets(
+    grade: Optional[str] = Query(default=None),
+    current_user: User = Depends(require_teacher),
+):
+    """List all saved personalized practice worksheets."""
+    return list_worksheets(grade=grade)
+
+
+@app.get("/worksheets/{worksheet_id}", response_model=PersonalizedWorksheet, tags=["Personalized Worksheets"])
+def get_worksheet_by_id(
+    worksheet_id: str,
+    current_user: User = Depends(require_teacher),
+):
+    """Retrieve a saved personalized worksheet."""
+    ws = load_worksheet(worksheet_id)
+    if not ws:
+        raise HTTPException(status_code=404, detail=f"Worksheet '{worksheet_id}' not found.")
+    return ws
+
+
+@app.get("/worksheets/{worksheet_id}/pdf", tags=["Personalized Worksheets"])
+def download_worksheet_pdf(
+    worksheet_id: str,
+    include_answers: bool = Query(default=False, description="False for student practice sheet, True for teacher key"),
+    current_user: User = Depends(require_teacher),
+):
+    """Download a worksheet as a PDF."""
+    ws = load_worksheet(worksheet_id)
+    if not ws:
+        raise HTTPException(status_code=404, detail=f"Worksheet '{worksheet_id}' not found.")
+
+    pdf_bytes = generate_worksheet_pdf(ws, include_answers=include_answers)
+    safe_name = ws.student_name.replace(" ", "_")
+    suffix = "solutions" if include_answers else "worksheet"
+    filename = f"Worksheet_{safe_name}_{suffix}.pdf"
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@app.post("/worksheets/batch-zip", tags=["Personalized Worksheets"])
+def download_worksheets_zip(
+    req: BatchWorksheetZipRequest,
+    current_user: User = Depends(require_teacher),
+):
+    """Download multiple student worksheets as a single ZIP bundle."""
+    worksheets: list[PersonalizedWorksheet] = []
+    for wid in req.worksheet_ids:
+        ws = load_worksheet(wid)
+        if ws:
+            worksheets.append(ws)
+
+    if not worksheets:
+        raise HTTPException(status_code=404, detail="No matching worksheets found for download.")
+
+    zip_bytes = generate_worksheets_zip(worksheets, include_answers=req.include_answers)
+    suffix = "teacher_solutions" if req.include_answers else "student_worksheets"
+    filename = f"Personalized_Worksheets_{suffix}_{datetime.now().strftime('%Y%m%d')}.zip"
+
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.delete("/worksheets/{worksheet_id}", tags=["Personalized Worksheets"])
+def delete_worksheet_endpoint(
+    worksheet_id: str,
+    current_user: User = Depends(require_teacher),
+):
+    """Delete a saved worksheet."""
+    f_path = settings.worksheets_dir / f"{worksheet_id}.json"
+    if not f_path.exists():
+        raise HTTPException(status_code=404, detail=f"Worksheet '{worksheet_id}' not found.")
+    try:
+        f_path.unlink()
+        return {"message": f"Worksheet '{worksheet_id}' deleted successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete worksheet: {e}")
+
 

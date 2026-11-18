@@ -291,8 +291,19 @@ def generate_pdf(paper: Paper, include_answers: bool = True) -> bytes:
         styles["AssessmentSubHeader"],
     ))
     set_label = getattr(paper, "set_label", None)
-    if set_label:
-        story.append(Paragraph(f"<b>SET {_escape(set_label)}</b>", styles["AssessmentSubHeader"]))
+    student_name = getattr(paper, "student_name", None)
+    roll_number = getattr(paper, "roll_number", None)
+    if student_name:
+        roll_info = f" | Roll No: {_escape(roll_number)}" if roll_number else ""
+        story.append(Paragraph(
+            f"<b>INDIVIDUAL STUDENT EXAMINATION PAPER — {_escape(student_name)}{roll_info} ({_escape(set_label or f'Student {paper.version_number}')})</b>",
+            styles["AssessmentSubHeader"],
+        ))
+    elif set_label:
+        if str(set_label).lower().startswith("student "):
+            story.append(Paragraph(f"<b>INDIVIDUAL EXAMINATION PAPER — {_escape(set_label)}</b>", styles["AssessmentSubHeader"]))
+        else:
+            story.append(Paragraph(f"<b>SET {_escape(set_label)}</b>", styles["AssessmentSubHeader"]))
 
     # Paper Metadata Table (Class, Subject, Marks, Time, Medium)
     meta_row_1 = [
@@ -353,22 +364,24 @@ def generate_pdf(paper: Paper, include_answers: bool = True) -> bytes:
     story.append(Spacer(1, 8))
 
     # 2. Student & Room Invigilator Information Box (Standard Formal Layout)
+    if student_name:
+        name_line = f"Name of the Student : <b>{_escape(student_name)}</b>"
+    else:
+        name_line = "Name of the Student : _____________________________________________________________________________"
+
+    if roll_number:
+        roll_line = f"Student SATS / Roll No : <b>{_escape(roll_number)}</b> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Signature of Student : ____________________"
+    else:
+        roll_line = (
+            "Student SATS / Roll No : [ &nbsp; ][ &nbsp; ][ &nbsp; ][ &nbsp; ][ &nbsp; ][ &nbsp; ][ &nbsp; ][ &nbsp; ][ &nbsp; ][ &nbsp; ] "
+            "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; "
+            "Signature of Student : ____________________"
+        )
+
     student_box_data = [
         [Paragraph("<b>Information to be filled by the Student</b>", styles["BoxHeader"])],
-        [
-            Paragraph(
-                "Name of the Student : _____________________________________________________________________________",
-                styles["BoxText"],
-            )
-        ],
-        [
-            Paragraph(
-                "Student SATS / Roll No : [ &nbsp; ][ &nbsp; ][ &nbsp; ][ &nbsp; ][ &nbsp; ][ &nbsp; ][ &nbsp; ][ &nbsp; ][ &nbsp; ][ &nbsp; ] "
-                "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; "
-                "Signature of Student : ____________________",
-                styles["BoxText"],
-            )
-        ],
+        [Paragraph(name_line, styles["BoxText"])],
+        [Paragraph(roll_line, styles["BoxText"])],
         [Paragraph("<b>Information to be filled by the Room Invigilator</b>", styles["BoxHeader"])],
         [
             Paragraph(

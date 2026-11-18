@@ -735,7 +735,9 @@ class PaperGenerateRequest(BaseModel):
     )
     num_questions: int = Field(..., gt=0, le=50, description="Number of questions to generate")
     total_marks: int = Field(..., gt=0, le=500, description="Desired total marks for the paper")
-    num_versions: int = Field(default=1, ge=1, le=10, description="Number of paper versions to generate (1-10)")
+    num_versions: int = Field(default=1, ge=1, le=50, description="Number of paper versions to generate (1-50)")
+    students: Optional[list[StudentEntry]] = Field(default=None, description="Optional roster of students for individualized papers")
+    generation_mode: str = Field(default="sets", description="'individual' for student papers, 'sets' for Set A, B, C...")
     sections: Optional[list[SectionBlueprint]] = Field(default=None, description="Optional custom section blueprints")
     blueprint: Optional[ExamBlueprint] = Field(default=None, description="Optional complete exam blueprint")
     include_figure_questions: bool = Field(default=True, description="Whether to include syllabus-aligned figure-based questions where appropriate")
@@ -843,7 +845,9 @@ class BatchPaperGenerateRequest(BaseModel):
         description="Explicit list of forbidden chapter/unit names excluded from generation",
     )
     difficulty: Difficulty = Field(default=Difficulty.MEDIUM, description="Overall difficulty")
-    num_versions: int = Field(default=2, ge=1, le=10, description="Number of unique paper versions to generate (1-10)")
+    num_versions: int = Field(default=2, ge=1, le=50, description="Number of unique paper versions to generate (1-50)")
+    students: Optional[list[StudentEntry]] = Field(default=None, description="Optional roster of students for individualized papers")
+    generation_mode: str = Field(default="sets", description="'individual' for student papers, 'sets' for Set A, B, C...")
 
     blueprint: Optional[ExamBlueprint] = Field(default=None, description="Explicit exam blueprint")
     sections: Optional[list[SectionBlueprint]] = Field(default=None, description="Explicit section blueprints")
@@ -881,6 +885,8 @@ class BatchPaperGenerateRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_batch_blueprint(self) -> "BatchPaperGenerateRequest":
+        if self.generation_mode == "sets" and not self.students and self.num_versions > 10:
+            raise ValueError("Number of paper sets cannot exceed 10. For larger classroom batches, select individual student papers mode.")
         if self.blueprint is not None:
             if self.num_questions is not None and self.blueprint.total_questions != self.num_questions:
                 raise ValueError("Blueprint total_questions does not match request num_questions.")
@@ -939,6 +945,13 @@ class PaperSection(BaseModel):
     marks_per_question: Optional[int] = Field(default=None, description="Uniform marks per question if applicable")
     instructions: Optional[str] = Field(default=None, description="Section-specific student instructions")
     questions: list[Question] = Field(default_factory=list)
+
+
+class StudentEntry(BaseModel):
+    """Student entry for assigning individual papers to specific students."""
+    student_name: str = Field(..., min_length=1, max_length=150, description="Student full name")
+    roll_number: Optional[str] = Field(default=None, max_length=50, description="Student roll number or ID")
+    section: Optional[str] = Field(default=None, max_length=50, description="Classroom section, e.g. 'A' or 'B'")
 
 
 class Paper(BaseModel):
@@ -1001,10 +1014,13 @@ class Paper(BaseModel):
     # Multi-version and blueprint metadata
     sections: list[PaperSection] = Field(default_factory=list, description="Sections in this paper")
     batch_id: Optional[str] = Field(default=None, description="Batch ID if part of multi-version generation")
-    version_number: int = Field(default=1, ge=1, le=10, description="Version number within batch (1-10)")
-    num_versions: int = Field(default=1, ge=1, le=10, description="Total versions in batch")
+    version_number: int = Field(default=1, ge=1, le=100, description="Version number within batch (1-100)")
+    num_versions: int = Field(default=1, ge=1, le=100, description="Total versions in batch (1-100)")
     blueprint_id: Optional[str] = Field(default=None, description="Blueprint identifier")
-    set_label: Optional[str] = Field(default=None, description="Set label within a batch, e.g. 'A', 'B', 'C'")
+    set_label: Optional[str] = Field(default=None, description="Set label within a batch, e.g. 'A', 'B', 'Student 1'")
+    student_name: Optional[str] = Field(default=None, description="Name of student assigned to this paper")
+    roll_number: Optional[str] = Field(default=None, description="Roll number / student ID assigned to this paper")
+    generation_mode: Optional[str] = Field(default=None, description="'individual' for student papers or 'sets' for Set A/B/C")
     custom_syllabus_id: Optional[str] = Field(default=None, description="Custom syllabus this paper was generated from")
     custom_syllabus_name: Optional[str] = Field(default=None, description="Name of the custom syllabus used")
 
@@ -1084,6 +1100,8 @@ class BatchPaperResponse(BaseModel):
     paper_ids: list[str] = Field(..., description="List of paper IDs for retrieval and PDF export")
     validation_summary: BatchValidationSummary = Field(..., description="Validation and uniqueness summary")
     set_labels: list[str] = Field(default_factory=list, description="Labels of generated sets, e.g. ['A', 'B']")
+    students: Optional[list[StudentEntry]] = Field(default=None, description="Assigned student roster if provided")
+    generation_mode: str = Field(default="individual", description="'individual' or 'sets'")
     warnings: list[str] = Field(
         default_factory=list,
         description="Teacher-facing notices, e.g. when fewer unique sets could be built than requested",
@@ -1216,13 +1234,36 @@ class PaperSummary(BaseModel):
     num_versions: int = 1
     batch_id: Optional[str] = None
     set_label: Optional[str] = None
+    student_name: Optional[str] = None
+    roll_number: Optional[str] = None
+    generation_mode: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
 # Custom syllabus models
 # ---------------------------------------------------------------------------
 
-SET_LABELS = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]
+SET_LABELS = [
+    "A", "B", "C", "D", "E", "F", "G", "H", "I", "J",
+    "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T",
+    "U", "V", "W", "X", "Y", "Z",
+]
+
+
+def format_set_or_student_label(
+    version_index: int,
+    mode: str = "individual",
+    student: Optional[StudentEntry] = None,
+) -> str:
+    """Produce clear user-facing label for paper set or individual student."""
+    if student and student.student_name:
+        roll_str = f" (Roll No: {student.roll_number})" if student.roll_number else ""
+        return f"{student.student_name}{roll_str}"
+    if mode == "individual":
+        return f"Student {version_index + 1}"
+    if version_index < len(SET_LABELS):
+        return SET_LABELS[version_index]
+    return f"Set {version_index + 1}"
 
 
 class CustomSyllabusChapter(BaseModel):
